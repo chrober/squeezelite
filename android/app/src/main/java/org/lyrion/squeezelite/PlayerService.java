@@ -342,6 +342,16 @@ public class PlayerService extends Service {
         }
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(mediaSessionCallback);
+        mediaSession.setActive(true);
+        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                .setState(PlaybackStateCompat.STATE_NONE, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0f)
+                .setActions(PlaybackStateCompat.ACTION_PLAY
+                        | PlaybackStateCompat.ACTION_PAUSE
+                        | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                        | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                        | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                        | PlaybackStateCompat.ACTION_SEEK_TO)
+                .build());
     }
 
     private void stopPlayer() {
@@ -527,15 +537,19 @@ public class PlayerService extends Service {
 
             int state;
             float speed;
+            long reportedPosition;
             if ("play".equals(mode)) {
                 state = PlaybackStateCompat.STATE_PLAYING;
                 speed = 1.0f;
+                reportedPosition = positionMs;
             } else if ("pause".equals(mode)) {
                 state = PlaybackStateCompat.STATE_PAUSED;
                 speed = 0f;
+                reportedPosition = positionMs;
             } else {
                 state = PlaybackStateCompat.STATE_STOPPED;
                 speed = 0f;
+                reportedPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
             }
 
             long actions = PlaybackStateCompat.ACTION_PLAY
@@ -546,15 +560,9 @@ public class PlayerService extends Service {
                     | PlaybackStateCompat.ACTION_SEEK_TO;
 
             mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                    .setState(state, positionMs, speed)
+                    .setState(state, reportedPosition, speed)
                     .setActions(actions)
                     .build());
-
-            if ("play".equals(mode) || "pause".equals(mode)) {
-                if (!mediaSession.isActive()) {
-                    mediaSession.setActive(true);
-                }
-            }
         } catch (Exception e) {
             Utils.error("Failed to parse status response", e);
         }
