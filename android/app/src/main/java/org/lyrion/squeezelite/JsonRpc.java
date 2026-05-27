@@ -54,6 +54,10 @@ public class JsonRpc {
         this.server = new ServerDiscovery.Server(address, ServerDiscovery.Server.DEFAULT_PORT, "");
     }
 
+    public String getServerUrl() {
+        return "http://" + server.ip + ":" + server.port;
+    }
+
     public void sendMessage(String[] command) {
         sendMessage(command, null);
     }

@@ -30,6 +30,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Handler;
@@ -40,6 +41,7 @@ import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.view.KeyEvent;
+import android.widget.ImageView;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -47,6 +49,10 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.media.session.MediaButtonReceiver;
+
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.ImageRequest;
+import com.android.volley.toolbox.Volley;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -82,6 +88,9 @@ public class PlayerService extends Service {
     private String lastArtist = "";
     private String lastAlbum = "";
     private long lastDurationMs = 0;
+    private String lastArtworkUrl = "";
+    private Bitmap lastArtwork = null;
+    private RequestQueue imageRequestQueue;
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -434,11 +443,15 @@ public class PlayerService extends Service {
             JSONObject result = response.getJSONObject("result");
             String mode = result.optString("mode", "stop");
             double time = result.optDouble("time", 0);
+            int playlistTracks = result.optInt("playlist_tracks", 0);
 
             String title = "";
             String artist = "";
             String album = "";
+            String genre = "";
+            String artworkUrl = "";
             double duration = 0;
+            int trackNum = 0;
 
             JSONArray playlistLoop = result.optJSONArray("playlist_loop");
             if (playlistLoop != null && playlistLoop.length() > 0) {
@@ -446,7 +459,24 @@ public class PlayerService extends Service {
                 title = track.optString("title", "");
                 artist = track.optString("artist", "");
                 album = track.optString("album", "");
+                genre = track.optString("genre", "");
                 duration = track.optDouble("duration", 0);
+                trackNum = track.optInt("tracknum", 0);
+                artworkUrl = track.optString("artwork_url", "");
+                if (artworkUrl.isEmpty()) {
+                    String coverId = track.optString("coverid", "");
+                    if (!coverId.isEmpty() && null != lib) {
+                        String serverUrl = lib.getServerUrl();
+                        if (null != serverUrl) {
+                            artworkUrl = serverUrl + "/music/" + coverId + "/cover.jpg";
+                        }
+                    }
+                } else if (artworkUrl.startsWith("/") && null != lib) {
+                    String serverUrl = lib.getServerUrl();
+                    if (null != serverUrl) {
+                        artworkUrl = serverUrl + artworkUrl;
+                    }
+                }
             }
 
             long durationMs = (long) (duration * 1000);
@@ -469,10 +499,27 @@ public class PlayerService extends Service {
                 if (!album.isEmpty()) {
                     metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album);
                 }
+                if (!genre.isEmpty()) {
+                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, genre);
+                }
                 if (durationMs > 0) {
                     metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
                 }
+                if (trackNum > 0) {
+                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, trackNum);
+                }
+                if (playlistTracks > 0) {
+                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, playlistTracks);
+                }
+                if (null != lastArtwork) {
+                    metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
+                }
                 mediaSession.setMetadata(metaBuilder.build());
+
+                if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
+                    lastArtworkUrl = artworkUrl;
+                    fetchArtwork(artworkUrl);
+                }
             }
 
             int state;
@@ -507,5 +554,35 @@ public class PlayerService extends Service {
         } catch (Exception e) {
             Utils.error("Failed to parse status response", e);
         }
+    }
+
+    private void fetchArtwork(String url) {
+        if (null == imageRequestQueue) {
+            imageRequestQueue = Volley.newRequestQueue(this);
+        }
+        ImageRequest imageRequest = new ImageRequest(url,
+                bitmap -> {
+                    lastArtwork = bitmap;
+                    if (null != mediaSession) {
+                        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
+                        if (!lastTitle.isEmpty()) {
+                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
+                        }
+                        if (!lastArtist.isEmpty()) {
+                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
+                        }
+                        if (!lastAlbum.isEmpty()) {
+                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
+                        }
+                        if (lastDurationMs > 0) {
+                            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
+                        }
+                        metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap);
+                        mediaSession.setMetadata(metaBuilder.build());
+                    }
+                },
+                512, 512, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.RGB_565,
+                error -> Utils.error("Failed to fetch artwork", error));
+        imageRequestQueue.add(imageRequest);
     }
 }
