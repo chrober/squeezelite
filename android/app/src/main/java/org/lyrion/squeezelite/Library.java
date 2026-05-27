@@ -353,8 +353,15 @@ public class Library {
 
     public void queryStatus(Response.Listener<JSONObject> listener) {
         if (null != jsonRpc) {
-            jsonRpc.sendMessage(new String[]{"status", "-", "1", "tags:adl"}, listener);
+            jsonRpc.sendMessage(new String[]{"status", "-", "1", "tags:adlKcgt"}, listener);
         }
+    }
+
+    public String getServerUrl() {
+        if (null != jsonRpc) {
+            return jsonRpc.getServerUrl();
+        }
+        return null;
     }
 
     private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer);
