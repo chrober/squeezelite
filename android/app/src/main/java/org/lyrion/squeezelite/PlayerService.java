@@ -301,7 +301,9 @@ public class PlayerService extends Service {
 
                 @Override
                 public void onSeekTo(long pos) {
-                    //sendCommand(new String[]{"time", Double.toString(pos/1000.0)});
+                    if (null != lib) {
+                        lib.sendCommand(new String[]{"time", Double.toString(pos / 1000.0)});
+                    }
                 }
 
                 public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
@@ -513,6 +515,7 @@ public class PlayerService extends Service {
                 }
                 if (null != lastArtwork) {
                     metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
+                    metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
                 }
                 mediaSession.setMetadata(metaBuilder.build());
 
@@ -539,7 +542,8 @@ public class PlayerService extends Service {
                     | PlaybackStateCompat.ACTION_PAUSE
                     | PlaybackStateCompat.ACTION_PLAY_PAUSE
                     | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                    | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS;
+                    | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                    | PlaybackStateCompat.ACTION_SEEK_TO;
 
             mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
                     .setState(state, positionMs, speed)
@@ -560,8 +564,10 @@ public class PlayerService extends Service {
         if (null == imageRequestQueue) {
             imageRequestQueue = Volley.newRequestQueue(this);
         }
+        Utils.info("Fetching artwork: " + url);
         ImageRequest imageRequest = new ImageRequest(url,
                 bitmap -> {
+                    Utils.info("Artwork fetched: " + bitmap.getWidth() + "x" + bitmap.getHeight());
                     lastArtwork = bitmap;
                     if (null != mediaSession) {
                         MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
@@ -578,11 +584,12 @@ public class PlayerService extends Service {
                             metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
                         }
                         metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap);
+                        metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap);
                         mediaSession.setMetadata(metaBuilder.build());
                     }
                 },
                 512, 512, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.RGB_565,
-                error -> Utils.error("Failed to fetch artwork", error));
+                error -> Utils.error("Failed to fetch artwork: " + url, error));
         imageRequestQueue.add(imageRequest);
     }
 }
