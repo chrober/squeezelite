@@ -33,6 +33,10 @@ import android.provider.Settings;
 
 import androidx.annotation.Keep;
 
+import com.android.volley.Response;
+
+import org.json.JSONObject;
+
 
 public class Library {
     private static final String[] PREV_COMMAND = {"button", "jump_rew"};
@@ -150,9 +154,9 @@ public class Library {
             audioManager = (AudioManager) service.getSystemService(Context.AUDIO_SERVICE);
             androidMaxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
         }
+        jsonRpc = new JsonRpc(service, server, mac);
         if (VOL_SYNC==volumeControl) {
             androidVolume = UNKNOWN_VOL;
-            jsonRpc = new JsonRpc(service, server, mac);
             observer = new VolumeChangeObserver();
             service.getApplicationContext().getContentResolver().registerContentObserver(Settings.System.CONTENT_URI, true, observer);
         }
@@ -344,6 +348,12 @@ public class Library {
     public void sendCommand(String[] cmd) {
         if (null!=jsonRpc) {
             jsonRpc.sendMessage(cmd);
+        }
+    }
+
+    public void queryStatus(Response.Listener<JSONObject> listener) {
+        if (null != jsonRpc) {
+            jsonRpc.sendMessage(new String[]{"status", "-", "1", "tags:adl"}, listener);
         }
     }
 

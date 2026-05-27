@@ -36,7 +36,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.view.KeyEvent;
 
 import androidx.annotation.Nullable;
@@ -45,6 +47,9 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.media.session.MediaButtonReceiver;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -72,6 +77,11 @@ public class PlayerService extends Service {
     private String playerName;
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
+    private ScheduledFuture<?> metadataPollingHandler;
+    private String lastTitle = "";
+    private String lastArtist = "";
+    private String lastAlbum = "";
+    private long lastDurationMs = 0;
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -332,6 +342,7 @@ public class PlayerService extends Service {
             wakeLock = null;
         }
         sendStatus(false);
+        stopMetadataPolling();
         stopTerminateTimer();
         lib.stopPlayer(this);
         if (mediaSession != null) {
@@ -361,8 +372,10 @@ public class PlayerService extends Service {
         }
         if (Utils.isEmpty(ip)) {
             startTerminateTimer(connectionLostTimeout);
+            stopMetadataPolling();
         } else {
             stopTerminateTimer();
+            startMetadataPolling();
         }
     }
 
@@ -379,6 +392,120 @@ public class PlayerService extends Service {
         if (null!= terminateOnConnectionLostHandler) {
             terminateOnConnectionLostHandler.cancel(false);
             terminateOnConnectionLostHandler = null;
+        }
+    }
+
+    private void startMetadataPolling() {
+        stopMetadataPolling();
+        if (null != lib) {
+            metadataPollingHandler = executorService.scheduleWithFixedDelay(
+                    this::pollMetadata, 0, 2, TimeUnit.SECONDS);
+        }
+    }
+
+    private void stopMetadataPolling() {
+        if (null != metadataPollingHandler) {
+            metadataPollingHandler.cancel(false);
+            metadataPollingHandler = null;
+        }
+        if (null != mediaSession) {
+            handler.post(() -> {
+                if (null != mediaSession) {
+                    mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                            .setState(PlaybackStateCompat.STATE_STOPPED, 0, 0f)
+                            .build());
+                    mediaSession.setActive(false);
+                }
+            });
+        }
+    }
+
+    private void pollMetadata() {
+        if (null != lib) {
+            lib.queryStatus(this::handleStatusResponse);
+        }
+    }
+
+    private void handleStatusResponse(JSONObject response) {
+        if (null == response || null == mediaSession) {
+            return;
+        }
+        try {
+            JSONObject result = response.getJSONObject("result");
+            String mode = result.optString("mode", "stop");
+            double time = result.optDouble("time", 0);
+
+            String title = "";
+            String artist = "";
+            String album = "";
+            double duration = 0;
+
+            JSONArray playlistLoop = result.optJSONArray("playlist_loop");
+            if (playlistLoop != null && playlistLoop.length() > 0) {
+                JSONObject track = playlistLoop.getJSONObject(0);
+                title = track.optString("title", "");
+                artist = track.optString("artist", "");
+                album = track.optString("album", "");
+                duration = track.optDouble("duration", 0);
+            }
+
+            long durationMs = (long) (duration * 1000);
+            long positionMs = (long) (time * 1000);
+
+            if (!title.equals(lastTitle) || !artist.equals(lastArtist) ||
+                    !album.equals(lastAlbum) || durationMs != lastDurationMs) {
+                lastTitle = title;
+                lastArtist = artist;
+                lastAlbum = album;
+                lastDurationMs = durationMs;
+
+                MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
+                if (!title.isEmpty()) {
+                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
+                }
+                if (!artist.isEmpty()) {
+                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist);
+                }
+                if (!album.isEmpty()) {
+                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album);
+                }
+                if (durationMs > 0) {
+                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
+                }
+                mediaSession.setMetadata(metaBuilder.build());
+            }
+
+            int state;
+            float speed;
+            if ("play".equals(mode)) {
+                state = PlaybackStateCompat.STATE_PLAYING;
+                speed = 1.0f;
+            } else if ("pause".equals(mode)) {
+                state = PlaybackStateCompat.STATE_PAUSED;
+                speed = 0f;
+            } else {
+                state = PlaybackStateCompat.STATE_STOPPED;
+                speed = 0f;
+            }
+
+            long actions = PlaybackStateCompat.ACTION_PLAY
+                    | PlaybackStateCompat.ACTION_PAUSE
+                    | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                    | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                    | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS;
+
+            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                    .setState(state, positionMs, speed)
+                    .setActions(actions)
+                    .build());
+
+            if ("play".equals(mode) || "pause".equals(mode)) {
+                if (!mediaSession.isActive()) {
+                    mediaSession.setActive(true);
+                }
+            }
+        } catch (Exception e) {
+            Utils.error("Failed to parse status response", e);
         }
     }
 }
