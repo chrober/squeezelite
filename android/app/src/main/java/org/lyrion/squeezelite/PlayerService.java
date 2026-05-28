@@ -26,8 +26,13 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.bluetooth.BluetoothA2dp;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothProfile;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
@@ -84,10 +89,17 @@ public class PlayerService extends Service {
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
     private ScheduledFuture<?> metadataPollingHandler;
+    private boolean sendBtMetadata = true;
+    private boolean showYear = false;
+    private boolean btA2dpConnected = false;
+    private BroadcastReceiver btA2dpReceiver;
     private String lastTitle = "";
     private String lastArtist = "";
     private String lastAlbum = "";
+    private String lastGenre = "";
     private long lastDurationMs = 0;
+    private long lastTrackNum = 0;
+    private long lastNumTracks = 0;
     private String lastArtworkUrl = "";
     private Bitmap lastArtwork = null;
     private RequestQueue imageRequestQueue;
@@ -146,6 +158,8 @@ public class PlayerService extends Service {
 
         connectionLostTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 60);
         initialConnectionTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 300);
+        sendBtMetadata = prefs.getBoolean(Prefs.SEND_BT_METADATA_KEY, Prefs.DEFAULT_SEND_BT_METADATA);
+        showYear = prefs.getBoolean(Prefs.SHOW_YEAR_KEY, Prefs.DEFAULT_SHOW_YEAR);
         if (null!=mediaSession) {
             MediaButtonReceiver.handleIntent(mediaSession, intent);
         }
@@ -352,6 +366,8 @@ public class PlayerService extends Service {
                         | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                         | PlaybackStateCompat.ACTION_SEEK_TO)
                 .build());
+
+        registerBtA2dpReceiver();
     }
 
     private void stopPlayer() {
@@ -362,6 +378,7 @@ public class PlayerService extends Service {
             wakeLock.release();
             wakeLock = null;
         }
+        unregisterBtA2dpReceiver();
         sendStatus(false);
         stopMetadataPolling();
         stopTerminateTimer();
@@ -418,9 +435,46 @@ public class PlayerService extends Service {
 
     private void startMetadataPolling() {
         stopMetadataPolling();
-        if (null != lib) {
+        if (null != lib && sendBtMetadata && btA2dpConnected) {
             metadataPollingHandler = executorService.scheduleWithFixedDelay(
                     this::pollMetadata, 0, 2, TimeUnit.SECONDS);
+        }
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerBtA2dpReceiver() {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter != null) {
+            btA2dpConnected = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothAdapter.STATE_CONNECTED;
+        }
+        btA2dpReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED.equals(intent.getAction())) {
+                    int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED);
+                    boolean wasConnected = btA2dpConnected;
+                    btA2dpConnected = (state == BluetoothProfile.STATE_CONNECTED);
+                    Utils.debug("A2DP state:" + state + ", btA2dpConnected:" + btA2dpConnected);
+                    if (btA2dpConnected && !wasConnected && currentServerAddress != null) {
+                        startMetadataPolling();
+                    } else if (!btA2dpConnected && wasConnected) {
+                        stopMetadataPolling();
+                    }
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(btA2dpReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(btA2dpReceiver, filter);
+        }
+    }
+
+    private void unregisterBtA2dpReceiver() {
+        if (btA2dpReceiver != null) {
+            unregisterReceiver(btA2dpReceiver);
+            btA2dpReceiver = null;
         }
     }
 
@@ -474,6 +528,10 @@ public class PlayerService extends Service {
                 genre = track.optString("genre", "");
                 duration = track.optDouble("duration", 0);
                 trackNum = track.optInt("tracknum", 0);
+                int year = track.optInt("year", 0);
+                if (showYear && year > 0 && !album.isEmpty()) {
+                    album = album + " (" + year + ")";
+                }
                 artworkUrl = track.optString("artwork_url", "");
                 if (artworkUrl.isEmpty()) {
                     String coverId = track.optString("coverid", "");
@@ -499,35 +557,12 @@ public class PlayerService extends Service {
                 lastTitle = title;
                 lastArtist = artist;
                 lastAlbum = album;
+                lastGenre = genre;
                 lastDurationMs = durationMs;
+                lastTrackNum = trackNum;
+                lastNumTracks = playlistTracks;
 
-                MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
-                if (!title.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
-                }
-                if (!artist.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist);
-                }
-                if (!album.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album);
-                }
-                if (!genre.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, genre);
-                }
-                if (durationMs > 0) {
-                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
-                }
-                if (trackNum > 0) {
-                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, trackNum);
-                }
-                if (playlistTracks > 0) {
-                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, playlistTracks);
-                }
-                if (null != lastArtwork) {
-                    metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
-                    metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
-                }
-                mediaSession.setMetadata(metaBuilder.build());
+                updateMediaSessionMetadata();
 
                 if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
                     lastArtworkUrl = artworkUrl;
@@ -577,27 +612,43 @@ public class PlayerService extends Service {
                 bitmap -> {
                     Utils.info("Artwork fetched: " + bitmap.getWidth() + "x" + bitmap.getHeight());
                     lastArtwork = bitmap;
-                    if (null != mediaSession) {
-                        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
-                        if (!lastTitle.isEmpty()) {
-                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
-                        }
-                        if (!lastArtist.isEmpty()) {
-                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
-                        }
-                        if (!lastAlbum.isEmpty()) {
-                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
-                        }
-                        if (lastDurationMs > 0) {
-                            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
-                        }
-                        metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap);
-                        metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap);
-                        mediaSession.setMetadata(metaBuilder.build());
-                    }
+                    updateMediaSessionMetadata();
                 },
                 512, 512, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.RGB_565,
                 error -> Utils.error("Failed to fetch artwork: " + url, error));
         imageRequestQueue.add(imageRequest);
+    }
+
+    private void updateMediaSessionMetadata() {
+        if (null == mediaSession) {
+            return;
+        }
+        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
+        if (!lastTitle.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
+        }
+        if (!lastArtist.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
+        }
+        if (!lastAlbum.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
+        }
+        if (!lastGenre.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, lastGenre);
+        }
+        if (lastDurationMs > 0) {
+            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
+        }
+        if (lastTrackNum > 0) {
+            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, lastTrackNum);
+        }
+        if (lastNumTracks > 0) {
+            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, lastNumTracks);
+        }
+        if (null != lastArtwork) {
+            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
+            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
+        }
+        mediaSession.setMetadata(metaBuilder.build());
     }
 }

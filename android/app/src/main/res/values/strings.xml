@@ -46,4 +46,8 @@
     <string name="none">None</string>
     <string name="stop_on_power_off">Stop on power off</string>
     <string name="stop_on_power_off_summary">"Stop player application when it's powered off via Lyrion."</string>
+    <string name="send_bt_metadata">Send metadata</string>
+    <string name="send_bt_metadata_summary">Send track metadata (title, artist, album, cover art) to connected Bluetooth devices.</string>
+    <string name="show_year">Show year with albums</string>
+    <string name="show_year_summary">When enabled, the album year will be shown next to the album title.</string>
 </resources>
