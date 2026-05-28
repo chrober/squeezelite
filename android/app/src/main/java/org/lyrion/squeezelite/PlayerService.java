@@ -91,7 +91,7 @@ public class PlayerService extends Service {
     private ScheduledFuture<?> metadataPollingHandler;
     private boolean sendBtMetadata = true;
     private boolean showYear = false;
-    private boolean btA2dpConnected = false;
+    private boolean btA2dpConnected = true;
     private BroadcastReceiver btA2dpReceiver;
     private String lastTitle = "";
     private String lastArtist = "";
@@ -443,9 +443,14 @@ public class PlayerService extends Service {
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void registerBtA2dpReceiver() {
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter != null) {
-            btA2dpConnected = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothAdapter.STATE_CONNECTED;
+        try {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter != null) {
+                btA2dpConnected = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothProfile.STATE_CONNECTED;
+            }
+        } catch (SecurityException e) {
+            Utils.debug("Cannot check A2DP state, assuming connected");
+            btA2dpConnected = true;
         }
         btA2dpReceiver = new BroadcastReceiver() {
             @Override
