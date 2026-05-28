@@ -142,6 +142,20 @@
         app:title="@string/bt">
         <SwitchPreferenceCompat
             app:iconSpaceReserved="false"
+            app:key="send_bt_metadata"
+            app:summary="@string/send_bt_metadata_summary"
+            app:title="@string/send_bt_metadata"
+            app:defaultValue="true"
+            app:singleLineTitle="false"/>
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:key="show_year"
+            app:summary="@string/show_year_summary"
+            app:title="@string/show_year"
+            app:defaultValue="false"
+            app:singleLineTitle="false"/>
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
             app:key="use_bt_id"
             app:summary="@string/use_bt_id_summary"
             app:title="@string/use_bt_id"

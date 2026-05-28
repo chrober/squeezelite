@@ -353,7 +353,7 @@ public class Library {
 
     public void queryStatus(Response.Listener<JSONObject> listener) {
         if (null != jsonRpc) {
-            jsonRpc.sendMessage(new String[]{"status", "-", "1", "tags:adlKcgt"}, listener);
+            jsonRpc.sendMessage(new String[]{"status", "-", "1", "tags:adlKcgty"}, listener);
         }
     }
 
