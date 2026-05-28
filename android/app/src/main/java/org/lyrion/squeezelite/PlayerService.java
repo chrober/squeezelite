@@ -87,7 +87,10 @@ public class PlayerService extends Service {
     private String lastTitle = "";
     private String lastArtist = "";
     private String lastAlbum = "";
+    private String lastGenre = "";
     private long lastDurationMs = 0;
+    private long lastTrackNum = 0;
+    private long lastNumTracks = 0;
     private String lastArtworkUrl = "";
     private Bitmap lastArtwork = null;
     private RequestQueue imageRequestQueue;
@@ -499,35 +502,12 @@ public class PlayerService extends Service {
                 lastTitle = title;
                 lastArtist = artist;
                 lastAlbum = album;
+                lastGenre = genre;
                 lastDurationMs = durationMs;
+                lastTrackNum = trackNum;
+                lastNumTracks = playlistTracks;
 
-                MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
-                if (!title.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, title);
-                }
-                if (!artist.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist);
-                }
-                if (!album.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album);
-                }
-                if (!genre.isEmpty()) {
-                    metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, genre);
-                }
-                if (durationMs > 0) {
-                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, durationMs);
-                }
-                if (trackNum > 0) {
-                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, trackNum);
-                }
-                if (playlistTracks > 0) {
-                    metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, playlistTracks);
-                }
-                if (null != lastArtwork) {
-                    metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
-                    metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
-                }
-                mediaSession.setMetadata(metaBuilder.build());
+                updateMediaSessionMetadata();
 
                 if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
                     lastArtworkUrl = artworkUrl;
@@ -577,27 +557,43 @@ public class PlayerService extends Service {
                 bitmap -> {
                     Utils.info("Artwork fetched: " + bitmap.getWidth() + "x" + bitmap.getHeight());
                     lastArtwork = bitmap;
-                    if (null != mediaSession) {
-                        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
-                        if (!lastTitle.isEmpty()) {
-                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
-                        }
-                        if (!lastArtist.isEmpty()) {
-                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
-                        }
-                        if (!lastAlbum.isEmpty()) {
-                            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
-                        }
-                        if (lastDurationMs > 0) {
-                            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
-                        }
-                        metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap);
-                        metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap);
-                        mediaSession.setMetadata(metaBuilder.build());
-                    }
+                    updateMediaSessionMetadata();
                 },
                 512, 512, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.RGB_565,
                 error -> Utils.error("Failed to fetch artwork: " + url, error));
         imageRequestQueue.add(imageRequest);
+    }
+
+    private void updateMediaSessionMetadata() {
+        if (null == mediaSession) {
+            return;
+        }
+        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
+        if (!lastTitle.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
+        }
+        if (!lastArtist.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
+        }
+        if (!lastAlbum.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
+        }
+        if (!lastGenre.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, lastGenre);
+        }
+        if (lastDurationMs > 0) {
+            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
+        }
+        if (lastTrackNum > 0) {
+            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, lastTrackNum);
+        }
+        if (lastNumTracks > 0) {
+            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, lastNumTracks);
+        }
+        if (null != lastArtwork) {
+            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
+            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
+        }
+        mediaSession.setMetadata(metaBuilder.build());
     }
 }
