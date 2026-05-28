@@ -136,6 +136,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable android.os.Bundle rootHints) {
+        if (currentServerAddress != null && sendBtMetadata && metadataPollingHandler == null) {
+            startMetadataPolling();
+        }
         return new BrowserRoot("root", null);
     }
 
