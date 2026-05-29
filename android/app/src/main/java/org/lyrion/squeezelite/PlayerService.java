@@ -405,7 +405,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         stopMetadataPolling();
         stopTerminateTimer();
         lib.stopPlayer(this);
-        if (mediaSession != null) {
+        if (null!=mediaSession) {
             mediaSession.setActive(false);
             mediaSession.release();
         }
@@ -467,7 +467,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private void registerBtA2dpReceiver() {
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter != null) {
+            if (null!=adapter) {
                 btA2dpConnected = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothProfile.STATE_CONNECTED;
             }
         } catch (SecurityException e) {
@@ -481,8 +481,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
                     int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED);
                     boolean wasConnected = btA2dpConnected;
                     btA2dpConnected = (state == BluetoothProfile.STATE_CONNECTED);
-                    Utils.debug("A2DP state:" + state + ", btA2dpConnected:" + btA2dpConnected);
-                    if (btA2dpConnected && !wasConnected && currentServerAddress != null) {
+                    Utils.debug("A2DP state:"+state+", btA2dpConnected:"+btA2dpConnected);
+                    if (btA2dpConnected && !wasConnected && null!=currentServerAddress) {
                         startMetadataPolling();
                     } else if (!btA2dpConnected && wasConnected) {
                         stopMetadataPolling();
@@ -499,7 +499,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     }
 
     private void unregisterBtA2dpReceiver() {
-        if (btA2dpReceiver != null) {
+        if (null!=btA2dpReceiver) {
             unregisterReceiver(btA2dpReceiver);
             btA2dpReceiver = null;
         }
@@ -547,7 +547,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
             int trackNum = 0;
 
             JSONArray playlistLoop = result.optJSONArray("playlist_loop");
-            if (playlistLoop != null && playlistLoop.length() > 0) {
+            if (null!=playlistLoop && playlistLoop.length() > 0) {
                 JSONObject track = playlistLoop.getJSONObject(0);
                 title = track.optString("title", "");
                 artist = track.optString("artist", "");
