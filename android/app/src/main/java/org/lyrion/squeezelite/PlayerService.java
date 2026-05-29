@@ -508,16 +508,16 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (null != metadataPollingHandler) {
             metadataPollingHandler.cancel(false);
             metadataPollingHandler = null;
-        }
-        if (null != mediaSession) {
-            handler.post(() -> {
-                if (null != mediaSession) {
-                    mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                            .setState(PlaybackStateCompat.STATE_STOPPED, 0, 0f)
-                            .build());
-                    mediaSession.setActive(false);
-                }
-            });
+            if (null != mediaSession) {
+                handler.post(() -> {
+                    if (null != mediaSession) {
+                        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                                .setState(PlaybackStateCompat.STATE_STOPPED, 0, 0f)
+                                .build());
+                        mediaSession.setActive(false);
+                    }
+                });
+            }
         }
     }
 
