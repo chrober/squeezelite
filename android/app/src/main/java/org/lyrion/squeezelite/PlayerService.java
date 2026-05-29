@@ -36,6 +36,9 @@ import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -96,7 +99,12 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private boolean sendBtMetadata = true;
     private boolean showYear = false;
     private boolean btA2dpConnected = true;
+    private boolean androidAutoConnected = false;
     private BroadcastReceiver btA2dpReceiver;
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private boolean hasAudioFocus = false;
+    private final AudioManager.OnAudioFocusChangeListener audioFocusListener = focusChange -> {};
     private String lastTitle = "";
     private String lastArtist = "";
     private String lastAlbum = "";
@@ -135,6 +143,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable android.os.Bundle rootHints) {
+        androidAutoConnected = true;
         if (null!=currentServerAddress && sendBtMetadata && null==metadataPollingHandler) {
             startMetadataPolling();
         }
@@ -403,6 +412,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         sendStatus(false);
         stopMetadataPolling();
         stopTerminateTimer();
+        abandonAudioFocus();
         lib.stopPlayer(this);
         if (null!=mediaSession) {
             mediaSession.setActive(false);
@@ -456,7 +466,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
     private void startMetadataPolling() {
         stopMetadataPolling();
-        if (null != lib && sendBtMetadata && btA2dpConnected) {
+        if (null != lib && sendBtMetadata && (btA2dpConnected || androidAutoConnected)) {
             metadataPollingHandler = executorService.scheduleWithFixedDelay(
                     this::pollMetadata, 0, 2, TimeUnit.SECONDS);
         }
@@ -508,6 +518,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (null != metadataPollingHandler) {
             metadataPollingHandler.cancel(false);
             metadataPollingHandler = null;
+            abandonAudioFocus();
             if (null != mediaSession) {
                 handler.post(() -> {
                     if (null != mediaSession) {
@@ -525,6 +536,46 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (null != lib) {
             lib.queryStatus(this::handleStatusResponse);
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void requestAudioFocus() {
+        if (hasAudioFocus) {
+            return;
+        }
+        if (null == audioManager) {
+            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (null == audioManager) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(new AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build())
+                    .setOnAudioFocusChangeListener(audioFocusListener)
+                    .build();
+            hasAudioFocus = audioManager.requestAudioFocus(audioFocusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        } else {
+            hasAudioFocus = audioManager.requestAudioFocus(
+                    audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
+            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void abandonAudioFocus() {
+        if (!hasAudioFocus || null == audioManager) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && null != audioFocusRequest) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+        } else {
+            audioManager.abandonAudioFocus(audioFocusListener);
+        }
+        hasAudioFocus = false;
     }
 
     private void handleStatusResponse(JSONObject response) {
@@ -603,6 +654,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 state = PlaybackStateCompat.STATE_PLAYING;
                 speed = 1.0f;
                 reportedPosition = positionMs;
+                requestAudioFocus();
             } else if ("pause".equals(mode)) {
                 state = PlaybackStateCompat.STATE_PAUSED;
                 speed = 0f;
@@ -611,6 +663,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 state = PlaybackStateCompat.STATE_STOPPED;
                 speed = 0f;
                 reportedPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+                abandonAudioFocus();
             }
 
             long actions = PlaybackStateCompat.ACTION_PLAY
