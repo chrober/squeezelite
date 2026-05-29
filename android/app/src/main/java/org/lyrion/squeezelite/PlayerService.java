@@ -25,7 +25,6 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-
 import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothProfile;
@@ -136,7 +135,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable android.os.Bundle rootHints) {
-        if (currentServerAddress != null && sendBtMetadata && metadataPollingHandler == null) {
+        if (null!=currentServerAddress && sendBtMetadata && null==metadataPollingHandler) {
             startMetadataPolling();
         }
         return new BrowserRoot("root", null);
