@@ -45,6 +45,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -152,7 +153,14 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
     @Override
     public void onLoadChildren(@NonNull String parentId, @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
-        result.sendResult(new ArrayList<>());
+        List<MediaBrowserCompat.MediaItem> items = new ArrayList<>();
+        MediaDescriptionCompat desc = new MediaDescriptionCompat.Builder()
+                .setMediaId("__INFO__")
+                .setTitle("Squeezelite is for playback only.")
+                .setSubtitle("Browse music via Lyrion app.")
+                .build();
+        items.add(new MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
+        result.sendResult(items);
     }
 
     @Override
