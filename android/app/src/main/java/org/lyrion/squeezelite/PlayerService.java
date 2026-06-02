@@ -159,7 +159,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 .setTitle("Squeezelite is for playback only.")
                 .setSubtitle("Browse music via Lyrion app.")
                 .build();
-        items.add(new MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_PLAYABLE));
+        items.add(new MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
         result.sendResult(items);
     }
 
