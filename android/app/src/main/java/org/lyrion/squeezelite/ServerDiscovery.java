@@ -35,6 +35,10 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
@@ -165,26 +169,17 @@ public abstract class ServerDiscovery {
             this.wifiManager = wifiManager;
         }
 
-        @Override
-        public void run() {
-            Utils.debug("Discover LMS servers");
-
-            active = true;
-            WifiManager.WifiLock wifiLock;
+        // Returns true if a server was found and discoverAll is false (caller should stop).
+        private boolean discoverOnInterface(InetAddress localAddr, InetAddress broadcastAddr, byte[] req) {
             DatagramSocket socket = null;
-            wifiLock = wifiManager.createWifiLock(Utils.LOG_TAG);
-            wifiLock.acquire();
-
             try {
-                InetAddress broadcastAddress = InetAddress.getByName("255.255.255.255");
-                socket = new DatagramSocket();
-                byte[] req = { 'e', 'I', 'P', 'A', 'D', 0, 'N', 'A', 'M', 'E', 0, 'J', 'S', 'O', 'N', 0 };
-                DatagramPacket reqPkt = new DatagramPacket(req, req.length, broadcastAddress, 3483);
+                socket = localAddr != null ? new DatagramSocket(0, localAddr) : new DatagramSocket();
+                socket.setBroadcast(true);
+                socket.setSoTimeout(SERVER_DISCOVERY_TIMEOUT);
+                DatagramPacket reqPkt = new DatagramPacket(req, req.length, broadcastAddr, 3483);
+                socket.send(reqPkt);
                 byte[] resp = new byte[256];
                 DatagramPacket respPkt = new DatagramPacket(resp, resp.length);
-
-                socket.setSoTimeout(SERVER_DISCOVERY_TIMEOUT);
-                socket.send(reqPkt);
                 for (;;) {
                     try {
                         socket.receive(respPkt);
@@ -193,7 +188,7 @@ public abstract class ServerDiscovery {
                             if (!servers.contains(server)) {
                                 servers.add(server);
                                 if (!discoverAll) {
-                                    break; // Stop at first for now...
+                                    return true;
                                 }
                             }
                         }
@@ -201,13 +196,59 @@ public abstract class ServerDiscovery {
                         break;
                     }
                 }
-
             } catch (Exception ignored) {
             } finally {
                 if (socket != null) {
                     socket.close();
                 }
+            }
+            return false;
+        }
 
+        @Override
+        public void run() {
+            Utils.debug("Discover LMS servers");
+
+            active = true;
+            WifiManager.WifiLock wifiLock = wifiManager.createWifiLock(Utils.LOG_TAG);
+            wifiLock.acquire();
+
+            try {
+                byte[] req = { 'e', 'I', 'P', 'A', 'D', 0, 'N', 'A', 'M', 'E', 0, 'J', 'S', 'O', 'N', 0 };
+
+                // Collect broadcast addresses from all active non-loopback interfaces.
+                // This ensures discovery works on the WiFi hotspot interface (ap0/wlan1)
+                // in addition to the regular WiFi client interface.
+                List<InterfaceAddress> candidates = new ArrayList<>();
+                try {
+                    Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
+                    if (ifaces != null) {
+                        while (ifaces.hasMoreElements()) {
+                            NetworkInterface iface = ifaces.nextElement();
+                            if (!iface.isLoopback() && iface.isUp()) {
+                                for (InterfaceAddress addr : iface.getInterfaceAddresses()) {
+                                    if (addr.getBroadcast() != null) {
+                                        candidates.add(addr);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+
+                if (candidates.isEmpty()) {
+                    discoverOnInterface(null, InetAddress.getByName("255.255.255.255"), req);
+                } else {
+                    for (InterfaceAddress addr : candidates) {
+                        if (discoverOnInterface(addr.getAddress(), addr.getBroadcast(), req)) {
+                            break;
+                        }
+                    }
+                }
+
+            } catch (Exception ignored) {
+            } finally {
                 Utils.verbose("Scanning complete, unlocking WiFi");
                 wifiLock.release();
             }
