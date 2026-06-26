@@ -634,6 +634,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
         boolean metadataChanged = status.hasTrack && (!title.equals(lastTitle) || !artist.equals(lastArtist) ||
                 !album.equals(lastAlbum) || durationMs != lastDurationMs);
+        boolean artworkChanged = status.hasTrack && !artworkUrl.equals(lastArtworkUrl);
         if (metadataChanged && !status.hasTime) {
             positionMs = 0;
             requestCometStatus();
@@ -675,11 +676,17 @@ public class PlayerService extends MediaBrowserServiceCompat {
             lastDurationMs = durationMs;
             lastTrackNum = trackNum;
             lastNumTracks = playlistTracks;
+        }
 
+        if (artworkChanged) {
+            lastArtworkUrl = artworkUrl;
+            lastArtwork = null;
+        }
+
+        if (metadataChanged || artworkChanged) {
             updateMediaSessionMetadata();
 
-            if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
-                lastArtworkUrl = artworkUrl;
+            if (artworkChanged && !artworkUrl.isEmpty()) {
                 fetchArtwork(artworkUrl);
             }
         }
@@ -830,6 +837,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         if (lastNumTracks > 0) {
             metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, lastNumTracks);
+        }
+        if (!lastArtworkUrl.isEmpty()) {
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, lastArtworkUrl);
+            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ART_URI, lastArtworkUrl);
         }
         if (null != lastArtwork) {
             metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
