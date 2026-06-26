@@ -58,6 +58,10 @@ public class JsonRpc {
         return "http://" + server.ip + ":" + server.port;
     }
 
+    public String getMac() {
+        return mac;
+    }
+
     public void sendMessage(String[] command) {
         sendMessage(command, null);
     }
