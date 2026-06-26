@@ -14,9 +14,12 @@ public class PlayerStatus {
     public String artist;
     public String album;
     public String genre;
+    public String mode = "";
     public long duration = 0;
     public long time = 0;
     public boolean isPlaying = false;
+    public boolean hasTime = false;
+    public boolean hasTrack = false;
     public int trackNum = 0;
     public int year = 0;
     public int playlistTracks = 0;

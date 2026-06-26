@@ -38,6 +38,7 @@ public class CometClient {
 
     private final ConnectionState connectionState;
     private SlimClient bayeuxClient;
+    private HttpClient httpClient;
     private final String playerMac;
     private String subscribedPlayer = null;
     private final String serverAddress;
@@ -163,7 +164,7 @@ public class CometClient {
     }
 
     private void doConnect() {
-        final HttpClient httpClient = new HttpClient();
+        httpClient = new HttpClient();
         try {
             httpClient.start();
         } catch (Exception e) {
@@ -196,7 +197,10 @@ public class CometClient {
                 try {
                     clientTransport.abort();
                     try {
-                        httpClient.stop();
+                        if (httpClient != null) {
+                            httpClient.stop();
+                            httpClient = null;
+                        }
                     } catch (Exception e) {
                         Utils.error("Failed to stop HTTP client", e);
                     }
@@ -262,6 +266,14 @@ public class CometClient {
             bayeuxClient.disconnect();
             bayeuxClient = null;
         }
+        if (httpClient != null) {
+            try {
+                httpClient.stop();
+            } catch (Exception e) {
+                Utils.error("Failed to stop HTTP client", e);
+            }
+            httpClient = null;
+        }
         subscribedPlayer = null;
     }
 
@@ -319,10 +331,26 @@ public class CometClient {
                     if (message.isSuccessful()) {
                         subscribedPlayer = id;
                         Utils.info("Subscribed to player: " + id);
+                        requestStatus();
                     }
                 }
             });
         }
+    }
+
+    public void requestStatus() {
+        if (null == playerMac || playerMac.isEmpty() || !connectionState.isConnected() || null == bayeuxClient) {
+            return;
+        }
+        List<Object> req = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+        params.add("status");
+        params.add("-");
+        params.add("1");
+        params.add(PLAYER_STATUS_TAGS);
+        req.add(playerMac);
+        req.add(params);
+        publishMessage(req, "/slim/subscribe", "/" + bayeuxClient.getId() + "/slim/playerstatus/" + playerMac, new PublishListener());
     }
 
     private float parseFloat(Object val) {
@@ -380,11 +408,14 @@ public class CometClient {
         PlayerStatus status = new PlayerStatus();
         status.id = playerId;
         status.timestamp = SystemClock.elapsedRealtime();
+        status.mode = mode != null ? mode : "";
         status.isPlaying = "play".equals(mode);
+        status.hasTime = messageData.containsKey("time");
         status.time = "stop".equals(mode) ? 0 : (long) (parseFloat(messageData.get("time")) * 1000.0f);
         status.playlistTracks = parseInt(messageData.get("playlist_tracks"));
 
         if (playlist_loop != null && playlist_loop.length > 0) {
+            status.hasTrack = true;
             Map<String, Object> track = (Map<String, Object>) playlist_loop[0];
             status.title = (String) track.get("title");
             status.artist = (String) track.get("artist");
