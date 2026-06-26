@@ -347,6 +347,7 @@ public class CometClient {
         params.add("status");
         params.add("-");
         params.add("1");
+        params.add("subscribe:0");
         params.add(PLAYER_STATUS_TAGS);
         req.add(playerMac);
         req.add(params);
@@ -392,6 +393,23 @@ public class CometClient {
     }
 
     @SuppressWarnings("unchecked")
+    private Map<String, Object> getCurrentTrack(Map<String, Object> messageData) {
+        Object playlistLoop = messageData.get("playlist_loop");
+        Object track = null;
+        if (playlistLoop instanceof Object[]) {
+            Object[] tracks = (Object[]) playlistLoop;
+            if (tracks.length > 0) {
+                track = tracks[0];
+            }
+        } else if (playlistLoop instanceof List) {
+            List<Object> tracks = (List<Object>) playlistLoop;
+            if (!tracks.isEmpty()) {
+                track = tracks.get(0);
+            }
+        }
+        return track instanceof Map ? (Map<String, Object>) track : null;
+    }
+
     private synchronized void handlePlayerStatusMessage(ClientSessionChannel channel, Message message) {
         String[] parts = message.getChannel().split("/");
         String playerId = parts[parts.length - 1];
@@ -403,7 +421,7 @@ public class CometClient {
 
         Map<String, Object> messageData = message.getDataAsMap();
         String mode = (String) messageData.get("mode");
-        Object[] playlist_loop = (Object[]) messageData.get("playlist_loop");
+        Map<String, Object> track = getCurrentTrack(messageData);
 
         PlayerStatus status = new PlayerStatus();
         status.id = playerId;
@@ -414,9 +432,8 @@ public class CometClient {
         status.time = "stop".equals(mode) ? 0 : (long) (parseFloat(messageData.get("time")) * 1000.0f);
         status.playlistTracks = parseInt(messageData.get("playlist_tracks"));
 
-        if (playlist_loop != null && playlist_loop.length > 0) {
+        if (track != null) {
             status.hasTrack = true;
-            Map<String, Object> track = (Map<String, Object>) playlist_loop[0];
             status.title = (String) track.get("title");
             status.artist = (String) track.get("artist");
             status.album = (String) track.get("album");
