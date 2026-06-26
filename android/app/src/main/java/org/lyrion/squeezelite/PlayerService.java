@@ -65,8 +65,9 @@ import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.ImageRequest;
 import com.android.volley.toolbox.Volley;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+import org.lyrion.squeezelite.cometd.CometClient;
+import org.lyrion.squeezelite.cometd.ConnectionState;
+import org.lyrion.squeezelite.cometd.PlayerStatus;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,7 +97,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private String playerName;
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
-    private ScheduledFuture<?> metadataPollingHandler;
+    private CometClient cometClient;
     private boolean sendBtMetadata = true;
     private boolean showYear = false;
     private boolean btA2dpConnected = true;
@@ -145,8 +146,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable android.os.Bundle rootHints) {
         androidAutoConnected = true;
-        if (null!=currentServerAddress && sendBtMetadata && null==metadataPollingHandler) {
-            startMetadataPolling();
+        if (null!=currentServerAddress && sendBtMetadata && null==cometClient) {
+            startCometSubscription();
         }
         return new BrowserRoot("root", null);
     }
@@ -418,7 +419,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         unregisterBtA2dpReceiver();
         sendStatus(false);
-        stopMetadataPolling();
+        stopCometSubscription();
         stopTerminateTimer();
         abandonAudioFocus();
         lib.stopPlayer(this);
@@ -449,10 +450,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         if (Utils.isEmpty(ip)) {
             startTerminateTimer(connectionLostTimeout);
-            stopMetadataPolling();
+            stopCometSubscription();
         } else {
             stopTerminateTimer();
-            startMetadataPolling();
+            startCometSubscription();
         }
     }
 
@@ -472,11 +473,25 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
-    private void startMetadataPolling() {
-        stopMetadataPolling();
+    private void startCometSubscription() {
+        stopCometSubscription();
         if (null != lib && sendBtMetadata && (btA2dpConnected || androidAutoConnected)) {
-            metadataPollingHandler = executorService.scheduleWithFixedDelay(
-                    this::pollMetadata, 0, 2, TimeUnit.SECONDS);
+            String serverUrl = lib.getServerUrl();
+            String mac = lib.getPlayerMac();
+            if (serverUrl != null && mac != null) {
+                cometClient = new CometClient(serverUrl, mac, new CometClient.StatusListener() {
+                    @Override
+                    public void onPlayerStatus(PlayerStatus status) {
+                        handler.post(() -> handleCometStatus(status));
+                    }
+
+                    @Override
+                    public void onConnectionStateChanged(ConnectionState.State state) {
+                        handler.post(() -> handleCometConnectionState(state));
+                    }
+                });
+                cometClient.connect();
+            }
         }
     }
 
@@ -500,9 +515,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
                     btA2dpConnected = (state == BluetoothProfile.STATE_CONNECTED);
                     Utils.debug("A2DP state:"+state+", btA2dpConnected:"+btA2dpConnected);
                     if (btA2dpConnected && !wasConnected && null!=currentServerAddress) {
-                        startMetadataPolling();
+                        startCometSubscription();
                     } else if (!btA2dpConnected && wasConnected) {
-                        stopMetadataPolling();
+                        stopCometSubscription();
                     }
                 }
             }
@@ -522,16 +537,16 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
-    private void stopMetadataPolling() {
-        if (null != metadataPollingHandler) {
-            metadataPollingHandler.cancel(false);
-            metadataPollingHandler = null;
+    private void stopCometSubscription() {
+        if (null != cometClient) {
+            cometClient.disconnect();
+            cometClient = null;
             abandonAudioFocus();
             if (null != mediaSession) {
                 handler.post(() -> {
                     if (null != mediaSession) {
                         mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                                .setState(PlaybackStateCompat.STATE_STOPPED, 0, 0f)
+                                .setState(PlaybackStateCompat.STATE_STOPPED, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0f)
                                 .build());
                         mediaSession.setActive(false);
                     }
@@ -540,10 +555,113 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
-    private void pollMetadata() {
-        if (null != lib) {
-            lib.queryStatus(this::handleStatusResponse);
+    private void handleCometStatus(PlayerStatus status) {
+        if (null == mediaSession) {
+            return;
         }
+        String title = status.title != null ? status.title : "";
+        String artist = status.artist != null ? status.artist : "";
+        String album = status.album != null ? status.album : "";
+        String genre = status.genre != null ? status.genre : "";
+        long durationMs = status.duration;
+        long positionMs = status.time;
+        int trackNum = status.trackNum;
+        int playlistTracks = status.playlistTracks;
+
+        if (showYear && status.year > 0 && !album.isEmpty()) {
+            album = album + " (" + status.year + ")";
+        }
+
+        if (!title.equals(lastTitle) || !artist.equals(lastArtist) ||
+                !album.equals(lastAlbum) || durationMs != lastDurationMs) {
+            lastTitle = title;
+            lastArtist = artist;
+            lastAlbum = album;
+            lastGenre = genre;
+            lastDurationMs = durationMs;
+            lastTrackNum = trackNum;
+            lastNumTracks = playlistTracks;
+
+            updateMediaSessionMetadata();
+
+            String artworkUrl = resolveArtworkUrl(status.artworkUrl, status.coverId);
+            if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
+                lastArtworkUrl = artworkUrl;
+                fetchArtwork(artworkUrl);
+            }
+        }
+
+        int state;
+        float speed;
+        long reportedPosition;
+        if (status.isPlaying) {
+            state = PlaybackStateCompat.STATE_PLAYING;
+            speed = 1.0f;
+            reportedPosition = positionMs;
+            requestAudioFocus();
+        } else if (positionMs > 0) {
+            state = PlaybackStateCompat.STATE_PAUSED;
+            speed = 0f;
+            reportedPosition = positionMs;
+        } else {
+            state = PlaybackStateCompat.STATE_STOPPED;
+            speed = 0f;
+            reportedPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+            abandonAudioFocus();
+        }
+
+        long actions = PlaybackStateCompat.ACTION_PLAY
+                | PlaybackStateCompat.ACTION_PAUSE
+                | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                | PlaybackStateCompat.ACTION_SEEK_TO;
+
+        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
+                .setState(state, reportedPosition, speed)
+                .setActions(actions)
+                .build());
+
+        if (!mediaSession.isActive() && state != PlaybackStateCompat.STATE_STOPPED) {
+            mediaSession.setActive(true);
+        }
+    }
+
+    private void handleCometConnectionState(ConnectionState.State state) {
+        switch (state) {
+            case CONNECTION_COMPLETED:
+                Utils.info("CometD connected");
+                break;
+            case CONNECTION_FAILED:
+            case DISCONNECTED:
+                Utils.info("CometD disconnected: " + state);
+                break;
+            case REHANDSHAKING:
+                Utils.info("CometD rehandshaking...");
+                break;
+        }
+    }
+
+    private String resolveArtworkUrl(String artworkUrl, String coverId) {
+        if (artworkUrl != null && !artworkUrl.isEmpty()) {
+            if (artworkUrl.startsWith("http")) {
+                return artworkUrl;
+            }
+            String serverUrl = lib != null ? lib.getServerUrl() : null;
+            if (serverUrl != null) {
+                if (artworkUrl.startsWith("/")) {
+                    return serverUrl + artworkUrl;
+                }
+                return serverUrl + "/" + artworkUrl;
+            }
+        }
+        if (coverId != null && !coverId.isEmpty() && null != lib) {
+            String serverUrl = lib.getServerUrl();
+            if (null != serverUrl) {
+                return serverUrl + "/music/" + coverId + "/cover.jpg";
+            }
+        }
+        return "";
     }
 
     @SuppressWarnings("deprecation")
@@ -584,110 +702,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
             audioManager.abandonAudioFocus(audioFocusListener);
         }
         hasAudioFocus = false;
-    }
-
-    private void handleStatusResponse(JSONObject response) {
-        if (null == response || null == mediaSession) {
-            return;
-        }
-        try {
-            JSONObject result = response.getJSONObject("result");
-            String mode = result.optString("mode", "stop");
-            double time = result.optDouble("time", 0);
-            int playlistTracks = result.optInt("playlist_tracks", 0);
-
-            String title = "";
-            String artist = "";
-            String album = "";
-            String genre = "";
-            String artworkUrl = "";
-            double duration = 0;
-            int trackNum = 0;
-
-            JSONArray playlistLoop = result.optJSONArray("playlist_loop");
-            if (null!=playlistLoop && playlistLoop.length() > 0) {
-                JSONObject track = playlistLoop.getJSONObject(0);
-                title = track.optString("title", "");
-                artist = track.optString("artist", "");
-                album = track.optString("album", "");
-                genre = track.optString("genre", "");
-                duration = track.optDouble("duration", 0);
-                trackNum = track.optInt("tracknum", 0);
-                int year = track.optInt("year", 0);
-                if (showYear && year > 0 && !album.isEmpty()) {
-                    album = album + " (" + year + ")";
-                }
-                artworkUrl = track.optString("artwork_url", "");
-                if (artworkUrl.isEmpty()) {
-                    String coverId = track.optString("coverid", "");
-                    if (!coverId.isEmpty() && null != lib) {
-                        String serverUrl = lib.getServerUrl();
-                        if (null != serverUrl) {
-                            artworkUrl = serverUrl + "/music/" + coverId + "/cover.jpg";
-                        }
-                    }
-                } else if (artworkUrl.startsWith("/") && null != lib) {
-                    String serverUrl = lib.getServerUrl();
-                    if (null != serverUrl) {
-                        artworkUrl = serverUrl + artworkUrl;
-                    }
-                }
-            }
-
-            long durationMs = (long) (duration * 1000);
-            long positionMs = (long) (time * 1000);
-
-            if (!title.equals(lastTitle) || !artist.equals(lastArtist) ||
-                    !album.equals(lastAlbum) || durationMs != lastDurationMs) {
-                lastTitle = title;
-                lastArtist = artist;
-                lastAlbum = album;
-                lastGenre = genre;
-                lastDurationMs = durationMs;
-                lastTrackNum = trackNum;
-                lastNumTracks = playlistTracks;
-
-                updateMediaSessionMetadata();
-
-                if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
-                    lastArtworkUrl = artworkUrl;
-                    fetchArtwork(artworkUrl);
-                }
-            }
-
-            int state;
-            float speed;
-            long reportedPosition;
-            if ("play".equals(mode)) {
-                state = PlaybackStateCompat.STATE_PLAYING;
-                speed = 1.0f;
-                reportedPosition = positionMs;
-                requestAudioFocus();
-            } else if ("pause".equals(mode)) {
-                state = PlaybackStateCompat.STATE_PAUSED;
-                speed = 0f;
-                reportedPosition = positionMs;
-            } else {
-                state = PlaybackStateCompat.STATE_STOPPED;
-                speed = 0f;
-                reportedPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
-                abandonAudioFocus();
-            }
-
-            long actions = PlaybackStateCompat.ACTION_PLAY
-                    | PlaybackStateCompat.ACTION_PAUSE
-                    | PlaybackStateCompat.ACTION_PLAY_PAUSE
-                    | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                    | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                    | PlaybackStateCompat.ACTION_SEEK_TO;
-
-            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                    .setState(state, reportedPosition, speed)
-                    .setActions(actions)
-                    .build());
-        } catch (Exception e) {
-            Utils.error("Failed to parse status response", e);
-        }
     }
 
     private void fetchArtwork(String url) {

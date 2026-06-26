@@ -364,6 +364,13 @@ public class Library {
         return null;
     }
 
+    public String getPlayerMac() {
+        if (null != jsonRpc) {
+            return jsonRpc.getMac();
+        }
+        return null;
+    }
+
     private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer);
     private native void stop();
 }
