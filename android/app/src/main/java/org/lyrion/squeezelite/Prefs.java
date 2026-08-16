@@ -49,6 +49,7 @@ public class Prefs {
     public static final String START_ON_BOOT_DELAY_KEY = "start_on_boot_delay";
     public static final String STOP_ON_POWER_OFF_KEY = "stop_on_power_off";
     public static final String AUTOSTART_BT_KEY = "autostart_bt";
+    public static final String AUTOSTOP_BT_KEY = "autostop_bt";
     public static final String BT_MAC_ADDRESSES_KEY = "bt_mac_addresses";
     public static final String USE_BT_ID_KEY = "use_bt_id";
     public static int MAX_BITRATE_ALWAYS = 0;
@@ -166,6 +167,12 @@ public class Prefs {
                 editor = sharedPreferences.edit();
             }
             editor.putBoolean(AUTOSTART_BT_KEY, false);
+        }
+        if (!sharedPreferences.contains(AUTOSTOP_BT_KEY)) {
+            if (null==editor) {
+                editor = sharedPreferences.edit();
+            }
+            editor.putBoolean(AUTOSTOP_BT_KEY, false);
         }
         if (!sharedPreferences.contains(STOP_ON_POWER_OFF_KEY)) {
             if (null==editor) {
