@@ -40,7 +40,12 @@ public class JsonRpc {
 
     private static class Request extends JsonObjectRequest {
         public Request(String url, @Nullable JSONObject request, Response.Listener<JSONObject> responseListener) {
-            super(Request.Method.POST, url, request, responseListener, null);
+            super(Request.Method.POST, url, request, responseListener, error -> {
+                Utils.warn("Request failed - " + error);
+                if (null!=responseListener) {
+                    responseListener.onResponse(null);
+                }
+            });
         }
     }
 

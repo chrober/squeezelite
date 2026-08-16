@@ -66,10 +66,11 @@ public class Library {
     private long lmsVolumeSendTime;
     private int volumeControl = VOL_SEP;
     private int maxBitrate = 0;
+    private boolean forgetOnStop = false;
     private PlayerService service;
     private VolumeChangeObserver observer;
     private AudioManager audioManager;
-    private JsonRpc jsonRpc;
+    private volatile JsonRpc jsonRpc;
     private String ipAddress;
 
     private class VolumeChangeObserver extends ContentObserver {
@@ -150,9 +151,10 @@ public class Library {
             audioManager = (AudioManager) service.getSystemService(Context.AUDIO_SERVICE);
             androidMaxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
         }
+        jsonRpc = new JsonRpc(service, server, mac);
+        forgetOnStop = VOL_SYNC==volumeControl;
         if (VOL_SYNC==volumeControl) {
             androidVolume = UNKNOWN_VOL;
-            jsonRpc = new JsonRpc(service, server, mac);
             observer = new VolumeChangeObserver();
             service.getApplicationContext().getContentResolver().registerContentObserver(Settings.System.CONTENT_URI, true, observer);
         }
@@ -212,7 +214,7 @@ public class Library {
             Utils.error("Exception interrupting player thread", e);
         }
         thread = null;
-        if (null != jsonRpc) {
+        if (null != jsonRpc && forgetOnStop) {
             jsonRpc.sendMessage(new String[]{"client", "forget"}, response -> {
                 Utils.debug("Handle 'forget' resp");
                 System.exit(0);
@@ -342,8 +344,9 @@ public class Library {
     }
 
     public void sendCommand(String[] cmd) {
-        if (null!=jsonRpc) {
-            jsonRpc.sendMessage(cmd);
+        JsonRpc rpc = jsonRpc;
+        if (null!=rpc) {
+            rpc.sendMessage(cmd);
         }
     }
 
