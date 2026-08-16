@@ -72,6 +72,7 @@ public class PlayerService extends Service {
     private String playerName;
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
+    private volatile NowPlaying nowPlaying;
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -176,11 +177,13 @@ public class PlayerService extends Service {
             Intent quitIntent = new Intent(this, PlayerService.class);
             quitIntent.setAction(QUIT_INTENT);
 
+            String track = null==nowPlaying ? null : nowPlaying.getDescription();
             notificationBuilder
                     .setOngoing(true)
                     .setOnlyAlertOnce(true)
                     .setSmallIcon(R.drawable.ic_mono_icon)
                     .setContentTitle(name + (Utils.isEmpty(currentServerAddress) ? "" : (" (" + currentServerAddress +")")))
+                    .setContentText(track)
                     .setCategory(Notification.CATEGORY_SERVICE)
                     .setContentIntent(pendingIntent)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -255,7 +258,7 @@ public class PlayerService extends Service {
                 public void onPlay() {
                     Utils.debug("");
                     if (null!=lib) {
-                        lib.playPause();
+                        lib.play();
                     }
                 }
 
@@ -263,7 +266,15 @@ public class PlayerService extends Service {
                 public void onPause() {
                     Utils.debug("");
                     if (null!=lib) {
-                        lib.playPause();
+                        lib.pause();
+                    }
+                }
+
+                @Override
+                public void onStop() {
+                    Utils.debug("");
+                    if (null!=lib) {
+                        lib.stopPlayback();
                     }
                 }
 
@@ -282,33 +293,37 @@ public class PlayerService extends Service {
 
                 @Override
                 public void onSeekTo(long pos) {
-                    //sendCommand(new String[]{"time", Double.toString(pos/1000.0)});
+                    if (null!=lib) {
+                        lib.seekTo(pos);
+                    }
                 }
 
+                // Act on ACTION_DOWN, and consume it, so that the event does not also reach the
+                // transport callbacks above. ACTION_UP falls through to super, which ignores it.
+                @Override
                 public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
-                    Utils.debug("");
                     KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                    if (lib!=null && event!=null && 1==event.getAction()) {
+                    if (null!=lib && null!=event && KeyEvent.ACTION_DOWN==event.getAction()) {
                         Utils.debug("KeyCode:" + event.getKeyCode());
                         switch (event.getKeyCode()) {
                             case KeyEvent.KEYCODE_MEDIA_PLAY:
-                                Utils.debug("Play");
-                                lib.playPause();
+                                lib.play();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                                Utils.debug("Pause");
-                                lib.playPause();
+                                lib.pause();
                                 return true;
+                            case KeyEvent.KEYCODE_MEDIA_STOP:
+                                lib.stopPlayback();
+                                return true;
+                            // These do not say which of the two is wanted, so toggle
                             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                                Utils.debug("Play/pause");
+                            case KeyEvent.KEYCODE_HEADSETHOOK:
                                 lib.playPause();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                                Utils.debug("Prev");
                                 lib.prev();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_NEXT:
-                                Utils.debug("Next");
                                 lib.next();
                                 return true;
                             default:
@@ -321,6 +336,13 @@ public class PlayerService extends Service {
         }
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(mediaSessionCallback);
+        if (Prefs.get(this).getBoolean(Prefs.SEND_TRACK_DETAILS_KEY, Prefs.DEFAULT_SEND_TRACK_DETAILS)) {
+            // Only activate the session when there is something to publish - Android will not
+            // relay its contents to connected devices otherwise
+            mediaSession.setActive(true);
+            nowPlaying = new NowPlaying(this, lib, mediaSession);
+            nowPlaying.update();
+        }
     }
 
     private void stopPlayer() {
@@ -333,11 +355,27 @@ public class PlayerService extends Service {
         }
         sendStatus(false);
         stopTerminateTimer();
+        if (null!=nowPlaying) {
+            nowPlaying.release();
+            nowPlaying = null;
+        }
         lib.stopPlayer(this);
         if (mediaSession != null) {
             mediaSession.setActive(false);
             mediaSession.release();
         }
+    }
+
+    public void playbackStateChanged() {
+        Utils.debug("");
+        NowPlaying np = nowPlaying;
+        if (null!=np) {
+            handler.post(np::update);
+        }
+    }
+
+    public void trackChanged() {
+        updateNotification();
     }
 
     private void sendStatus(boolean running) {
@@ -363,6 +401,8 @@ public class PlayerService extends Service {
             startTerminateTimer(connectionLostTimeout);
         } else {
             stopTerminateTimer();
+            // Now that we know where the server is, read what it is playing
+            playbackStateChanged();
         }
     }
 

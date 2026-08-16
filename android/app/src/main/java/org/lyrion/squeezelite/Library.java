@@ -23,6 +23,7 @@ package org.lyrion.squeezelite;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.ContentObserver;
+import android.graphics.Bitmap;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -33,11 +34,18 @@ import android.provider.Settings;
 
 import androidx.annotation.Keep;
 
+import com.android.volley.Response;
+
+import org.json.JSONObject;
+
 
 public class Library {
     private static final String[] PREV_COMMAND = {"button", "jump_rew"};
+    private static final String[] PLAY_COMMAND = {"pause", "0"};
+    private static final String[] PAUSE_COMMAND = {"pause", "1"};
     private static final String[] TOGGLE_PLAY_PAUSE_COMMAND = {"pause"};
     private static final String[] NEXT_COMMAND = {"playlist", "index", "+1"};
+    private static final String[] STOP_COMMAND = {"stop"};
 
     // Timeout after which Squeezelite will close audio stream
     static final int STREAM_IDLE_TIMEOUT = 2000;
@@ -67,7 +75,7 @@ public class Library {
     private int volumeControl = VOL_SEP;
     private int maxBitrate = 0;
     private boolean forgetOnStop = false;
-    private PlayerService service;
+    private volatile PlayerService service;
     private VolumeChangeObserver observer;
     private AudioManager audioManager;
     private volatile JsonRpc jsonRpc;
@@ -331,8 +339,26 @@ public class Library {
         isInitialPower = false;
     }
 
+    // Called from C code when a track starts, or playback is paused, resumed, or stopped
+    @Keep
+    public void playbackStateChanged() {
+        Utils.debug("");
+        PlayerService svc = service;
+        if (null!=svc) {
+            svc.playbackStateChanged();
+        }
+    }
+
     public void prev() {
         sendCommand(PREV_COMMAND);
+    }
+
+    public void play() {
+        sendCommand(PLAY_COMMAND);
+    }
+
+    public void pause() {
+        sendCommand(PAUSE_COMMAND);
     }
 
     public void playPause() {
@@ -343,11 +369,41 @@ public class Library {
         sendCommand(NEXT_COMMAND);
     }
 
+    public void stopPlayback() {
+        sendCommand(STOP_COMMAND);
+    }
+
+    public void seekTo(long ms) {
+        sendCommand(new String[]{"time", String.valueOf(ms/1000.0)});
+    }
+
     public void sendCommand(String[] cmd) {
         JsonRpc rpc = jsonRpc;
         if (null!=rpc) {
             rpc.sendMessage(cmd);
         }
+    }
+
+    public void getStatus(String tags, Response.Listener<JSONObject> listener) {
+        if (null==jsonRpc) {
+            listener.onResponse(null);
+            return;
+        }
+        jsonRpc.sendMessage(new String[]{"status", "-", "1", tags}, listener);
+    }
+
+    public void fetchImage(String url, int maxSize, Response.Listener<Bitmap> listener) {
+        if (null!=jsonRpc) {
+            jsonRpc.fetchImage(url, maxSize, listener);
+        }
+    }
+
+    public String getServerUrl() {
+        return null==jsonRpc ? null : jsonRpc.getBaseUrl();
+    }
+
+    public String getMac() {
+        return null==jsonRpc ? null : jsonRpc.getMac();
     }
 
     private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer);
