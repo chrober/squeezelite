@@ -37,6 +37,7 @@ import org.json.JSONObject;
  * e.g. as AVRCP metadata for a BT car stereo, and to Android Auto, the lock screen, etc.
  */
 public class NowPlaying {
+    private static final String SEPARATOR = " • ";
     // artist, album, duration, coverid, artwork url, remote stream title, is-remote
     private static final String TAGS = "tags:aldcKNx";
     // Let LMS settle on the new track, and coalesce a burst of events into a single query
@@ -145,7 +146,7 @@ public class NowPlaying {
         remoteStream = remote && PlaybackStateCompat.STATE_PLAYING==newState;
 
         if (trackChanged) {
-            Utils.debug("New track:" + title + " - " + artist);
+            Utils.debug("New track:" + title + SEPARATOR + artist);
             trackKey = key;
             metadata = new MediaMetadataCompat.Builder()
                     .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
@@ -154,7 +155,7 @@ public class NowPlaying {
                     .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, artist)
                     .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, album)
                     .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, (long)(duration*1000));
-            description = Utils.isEmpty(artist) ? title : (title + " - " + artist);
+            description = Utils.isEmpty(artist) ? title : (title + SEPARATOR + artist);
             if (!url.equals(coverUrl)) {
                 coverUrl = url;
                 cover = null;
