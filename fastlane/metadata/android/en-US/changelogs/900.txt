@@ -1,0 +1,4 @@
+• If fail to find any AAudio symbol then fall back to OpenSL ES.
+• Fix track transition failures when crossfade is enabled - thanks to chrober.
+• Auto-start on the A2DP connection, not on the radio link - thanks to werdeil.
+• Send current track details to connected devices - thanks to werdeil.
