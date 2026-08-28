@@ -20,11 +20,14 @@
 
 package org.lyrion.squeezelite;
 
+import android.bluetooth.BluetoothA2dp;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
+import android.os.SystemClock;
 
 import java.util.Set;
 
@@ -36,6 +39,9 @@ import java.util.Set;
 public class CommandReceiver extends BroadcastReceiver {
     private static final String START = "org.lyrion.squeezelite.START";
     private static final String STOP = "org.lyrion.squeezelite.STOP";
+    private static final long IGNORE_RECONNECT_AFTER = 5000;
+
+    private static long lastDisconnect = 0;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -49,40 +55,56 @@ public class CommandReceiver extends BroadcastReceiver {
             startOnBoot(context);
         } else if (act.equals(STOP)) {
             context.stopService(new Intent(context, PlayerService.class));
-        } else if (act.equals(BluetoothDevice.ACTION_ACL_CONNECTED) || act.equals(BluetoothDevice.ACTION_ACL_DISCONNECTED)) {
-            handleBtIntent(context, intent, act);
+        } else if (act.equals(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)) {
+            handleBtIntent(context, intent);
         }
     }
 
-    private void handleBtIntent(Context context, Intent intent, String act) {
+    private void handleBtIntent(Context context, Intent intent) {
         BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-        if (device != null) {
-            String macAddress = device.getAddress();
-            Utils.debug("BT MAC address: " + macAddress);
+        if (device == null) {
+            return;
+        }
+        String macAddress = device.getAddress();
+        Utils.debug("BT MAC address: " + macAddress);
 
-            if (!Prefs.get(context).getBoolean(Prefs.AUTOSTART_BT_KEY, false)) {
-                Utils.debug("Not configured for BT auto-start");
-                return;
-            }
+        int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1);
+        if (BluetoothProfile.STATE_CONNECTED != state && BluetoothProfile.STATE_DISCONNECTED != state) {
+            Utils.debug("Ignoring A2DP state " + state);
+            return;
+        }
+        boolean connected = BluetoothProfile.STATE_CONNECTED == state;
 
-            Set<String> macs = Prefs.get(context).getStringSet(Prefs.BT_MAC_ADDRESSES_KEY, null);
-            if (null==macs || macs.isEmpty()) {
-                Utils.debug("No BT MACs configured");
-                return;
-            }
+        if (!Prefs.get(context).getBoolean(Prefs.AUTOSTART_BT_KEY, false)) {
+            Utils.debug("Not configured for BT auto-start");
+            return;
+        }
 
-            if (!macs.contains(macAddress)) {
-                Utils.debug("Not a configured BT MAC");
-                return;
-            }
+        Set<String> macs = Prefs.get(context).getStringSet(Prefs.BT_MAC_ADDRESSES_KEY, null);
+        if (null==macs || macs.isEmpty()) {
+            Utils.debug("No BT MACs configured");
+            return;
+        }
 
-            if (Utils.isPlayerRunning(context)) {
-                context.stopService(new Intent(context, PlayerService.class));
-            }
+        if (!macs.contains(macAddress)) {
+            Utils.debug("Not a configured BT MAC");
+            return;
+        }
 
-            if (act.equals(BluetoothDevice.ACTION_ACL_CONNECTED)) {
-                startService(context);
-            }
+        long now = SystemClock.elapsedRealtime();
+        if (!connected) {
+            lastDisconnect = now;
+        } else if (now-lastDisconnect < IGNORE_RECONNECT_AFTER) {
+            Utils.debug("Ignoring a connection " + (now-lastDisconnect) + "ms after a disconnection");
+            return;
+        }
+
+        if (Utils.isPlayerRunning(context)) {
+            context.stopService(new Intent(context, PlayerService.class));
+        }
+
+        if (connected) {
+            startService(context);
         }
     }
 

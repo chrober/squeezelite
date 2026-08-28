@@ -149,6 +149,8 @@ endif
 
 link_args += [
   '-Wl,--no-undefined,-shared,-Bsymbolic',
+  '-Wl,-z,max-page-size=16384',
+  '-Wl,-z,common-page-size=16384',
   '-Llib' / android_host_triplet / 'root/lib/',
   '-llog',
   '-lz',
