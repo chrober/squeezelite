@@ -75,6 +75,12 @@ public class CommandReceiver extends BroadcastReceiver {
         }
         boolean connected = BluetoothProfile.STATE_CONNECTED == state;
 
+        if (!connected && Prefs.get(context).getBoolean(Prefs.AUTOSTOP_BT_KEY, false)) {
+            if (Utils.isPlayerRunning(context)) {
+                context.stopService(new Intent(context, PlayerService.class));
+            }
+            return;
+        }
         if (!Prefs.get(context).getBoolean(Prefs.AUTOSTART_BT_KEY, false)) {
             Utils.debug("Not configured for BT auto-start");
             return;
