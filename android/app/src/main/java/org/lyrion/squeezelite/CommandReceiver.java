@@ -39,9 +39,6 @@ import java.util.Set;
 public class CommandReceiver extends BroadcastReceiver {
     private static final String START = "org.lyrion.squeezelite.START";
     private static final String STOP = "org.lyrion.squeezelite.STOP";
-    private static final long IGNORE_RECONNECT_AFTER = 5000;
-
-    private static long lastDisconnect = 0;
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -66,7 +63,6 @@ public class CommandReceiver extends BroadcastReceiver {
             return;
         }
         String macAddress = device.getAddress();
-        Utils.debug("BT MAC address: " + macAddress);
 
         int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1);
         if (BluetoothProfile.STATE_CONNECTED != state && BluetoothProfile.STATE_DISCONNECTED != state) {
@@ -94,14 +90,6 @@ public class CommandReceiver extends BroadcastReceiver {
 
         if (!macs.contains(macAddress)) {
             Utils.debug("Not a configured BT MAC");
-            return;
-        }
-
-        long now = SystemClock.elapsedRealtime();
-        if (!connected) {
-            lastDisconnect = now;
-        } else if (now-lastDisconnect < IGNORE_RECONNECT_AFTER) {
-            Utils.debug("Ignoring a connection " + (now-lastDisconnect) + "ms after a disconnection");
             return;
         }
 
