@@ -2,3 +2,4 @@
 • Fix track transition failures when crossfade is enabled - thanks to chrober.
 • Auto-start on the A2DP connection, not on the radio link - thanks to werdeil.
 • Send current track details to connected devices - thanks to werdeil.
+• Add option to stop on disconnect of any BT audio device.
