@@ -23,6 +23,7 @@ package org.lyrion.squeezelite;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.ContentObserver;
+import android.graphics.Bitmap;
 import android.media.AudioManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -40,11 +41,14 @@ import org.json.JSONObject;
 
 public class Library {
     private static final String[] PREV_COMMAND = {"button", "jump_rew"};
+    private static final String[] PLAY_COMMAND = {"pause", "0"};
+    private static final String[] PAUSE_COMMAND = {"pause", "1"};
     private static final String[] TOGGLE_PLAY_PAUSE_COMMAND = {"pause"};
     private static final String[] NEXT_COMMAND = {"playlist", "index", "+1"};
+    private static final String[] STOP_COMMAND = {"stop"};
 
     // Timeout after which Squeezelite will close audio stream
-    static final int STREAM_IDLE_TIMEOUT = 2000;
+    static final int STREAM_IDLE_TIMEOUT = 30000;
     static long MIN_LMS_VOLUME_UPDATE_TIME = 750;
     // received volume values for 0..100
     static int[] LMS_VOLS = new int[]{0,16,18,22,26,31,36,43,51,61,72,85,101,120,142,168,200,237,281,333,395,468,555,658,781,926,980,1037,1098,1162,1230,1302,1378,1458,1543,1634,1729,1830,1937,2050,2048,2304,2304,2560,2816,2816,3072,3328,3328,3584,3840,4096,4352,4608,4864,5120,5376,5632,6144,6400,6656,7168,7680,7936,8448,8960,9472,9984,10752,11264,12032,12544,13312,14080,14848,15872,16640,17664,18688,19968,20992,22272,23552,24832,26368,27904,29696,31232,33024,35072,37120,39424,41728,44032,46592,49408,52224,55296,58624,61952,65536};
@@ -70,10 +74,11 @@ public class Library {
     private long lmsVolumeSendTime;
     private int volumeControl = VOL_SEP;
     private int maxBitrate = 0;
-    private PlayerService service;
+    private boolean forgetOnStop = false;
+    private volatile PlayerService service;
     private VolumeChangeObserver observer;
     private AudioManager audioManager;
-    private JsonRpc jsonRpc;
+    private volatile JsonRpc jsonRpc;
     private String ipAddress;
 
     private class VolumeChangeObserver extends ContentObserver {
@@ -155,6 +160,7 @@ public class Library {
             androidMaxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
         }
         jsonRpc = new JsonRpc(service, server, mac);
+        forgetOnStop = VOL_SYNC==volumeControl;
         if (VOL_SYNC==volumeControl) {
             androidVolume = UNKNOWN_VOL;
             observer = new VolumeChangeObserver();
@@ -216,7 +222,7 @@ public class Library {
             Utils.error("Exception interrupting player thread", e);
         }
         thread = null;
-        if (null != jsonRpc) {
+        if (null != jsonRpc && forgetOnStop) {
             jsonRpc.sendMessage(new String[]{"client", "forget"}, response -> {
                 Utils.debug("Handle 'forget' resp");
                 System.exit(0);
@@ -333,8 +339,26 @@ public class Library {
         isInitialPower = false;
     }
 
+    // Called from C code when a track starts, or playback is paused, resumed, or stopped
+    @Keep
+    public void playbackStateChanged() {
+        Utils.debug("");
+        PlayerService svc = service;
+        if (null!=svc) {
+            svc.playbackStateChanged();
+        }
+    }
+
     public void prev() {
         sendCommand(PREV_COMMAND);
+    }
+
+    public void play() {
+        sendCommand(PLAY_COMMAND);
+    }
+
+    public void pause() {
+        sendCommand(PAUSE_COMMAND);
     }
 
     public void playPause() {
@@ -345,23 +369,41 @@ public class Library {
         sendCommand(NEXT_COMMAND);
     }
 
+    public void stopPlayback() {
+        sendCommand(STOP_COMMAND);
+    }
+
+    public void seekTo(long ms) {
+        sendCommand(new String[]{"time", String.valueOf(ms/1000.0)});
+    }
+
     public void sendCommand(String[] cmd) {
-        if (null!=jsonRpc) {
-            jsonRpc.sendMessage(cmd);
+        JsonRpc rpc = jsonRpc;
+        if (null!=rpc) {
+            rpc.sendMessage(cmd);
         }
     }
 
-    public void queryStatus(Response.Listener<JSONObject> listener) {
-        if (null != jsonRpc) {
-            jsonRpc.sendMessage(new String[]{"status", "-", "1", "tags:adlKcgty"}, listener);
+    public void getStatus(String tags, Response.Listener<JSONObject> listener) {
+        if (null==jsonRpc) {
+            listener.onResponse(null);
+            return;
+        }
+        jsonRpc.sendMessage(new String[]{"status", "-", "1", tags}, listener);
+    }
+
+    public void fetchImage(String url, int maxSize, Response.Listener<Bitmap> listener) {
+        if (null!=jsonRpc) {
+            jsonRpc.fetchImage(url, maxSize, listener);
         }
     }
 
     public String getServerUrl() {
-        if (null != jsonRpc) {
-            return jsonRpc.getServerUrl();
-        }
-        return null;
+        return null==jsonRpc ? null : jsonRpc.getBaseUrl();
+    }
+
+    public String getMac() {
+        return null==jsonRpc ? null : jsonRpc.getMac();
     }
 
     private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer);

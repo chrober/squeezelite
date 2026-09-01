@@ -264,6 +264,10 @@ public class SettingsActivity extends AppCompatActivity {
                 if (sharedPreferences.getBoolean(Prefs.AUTOSTART_BT_KEY, false)) {
                     activity.checkBtPermission();
                 }
+            } else if (Prefs.AUTOSTOP_BT_KEY.equals(key)) {
+                if (sharedPreferences.getBoolean(Prefs.AUTOSTOP_BT_KEY, false)) {
+                    activity.checkBtPermission();
+                }
             } else {
                 updateSummary(key);
             }
@@ -338,18 +342,23 @@ public class SettingsActivity extends AppCompatActivity {
 
             SwitchPreferenceCompat useIdPref = getPreferenceManager().findPreference(Prefs.USE_BT_ID_KEY);
             SwitchPreferenceCompat autoStartPref = getPreferenceManager().findPreference(Prefs.AUTOSTART_BT_KEY);
+            SwitchPreferenceCompat autoStopPref = getPreferenceManager().findPreference(Prefs.AUTOSTOP_BT_KEY);
 
-            if (useIdPref==null || useIdPref.isChecked() || autoStartPref==null || autoStartPref.isChecked()) {
+            if (useIdPref==null || useIdPref.isChecked() || autoStartPref==null || autoStartPref.isChecked() || autoStopPref==null || autoStopPref.isChecked()) {
                 SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(getContext());
                 SharedPreferences.Editor editor = sharedPreferences.edit();
                 editor.putBoolean(Prefs.USE_BT_ID_KEY, false);
                 editor.putBoolean(Prefs.AUTOSTART_BT_KEY, false);
+                editor.putBoolean(Prefs.AUTOSTOP_BT_KEY, false);
                 editor.apply();
                 if (useIdPref != null && useIdPref.isChecked()) {
                     useIdPref.setChecked(false);
                 }
                 if (autoStartPref != null && autoStartPref.isChecked()) {
                     autoStartPref.setChecked(false);
+                }
+                if (autoStopPref != null && autoStopPref.isChecked()) {
+                    autoStopPref.setChecked(false);
                 }
             }
         }

@@ -49,9 +49,11 @@ public class Prefs {
     public static final String START_ON_BOOT_DELAY_KEY = "start_on_boot_delay";
     public static final String STOP_ON_POWER_OFF_KEY = "stop_on_power_off";
     public static final String AUTOSTART_BT_KEY = "autostart_bt";
+    public static final String AUTOSTOP_BT_KEY = "autostop_bt";
     public static final String BT_MAC_ADDRESSES_KEY = "bt_mac_addresses";
     public static final String USE_BT_ID_KEY = "use_bt_id";
     public static final String SEND_BT_METADATA_KEY = "send_bt_metadata";
+    public static final String SEND_TRACK_DETAILS_KEY = "send_track_details";
     public static final String SHOW_YEAR_KEY = "show_year";
     public static int MAX_BITRATE_ALWAYS = 0;
     public static int MAX_BITRATE_WHEN_CELLULAR = 1;
@@ -74,7 +76,7 @@ public class Prefs {
     public static boolean DEFAULT_START_ON_BOOT = false;
     public static String DEFAULT_START_ON_BOOT_DELAY = "0";
     public static boolean DEFAULT_STOP_ON_POWER_OFF = true;
-    public static boolean DEFAULT_SEND_BT_METADATA = true;
+    public static boolean DEFAULT_SEND_TRACK_DETAILS = true;
     public static boolean DEFAULT_SHOW_YEAR = false;
 
     static public SharedPreferences get(Context context) {
@@ -171,17 +173,26 @@ public class Prefs {
             }
             editor.putBoolean(AUTOSTART_BT_KEY, false);
         }
+        if (!sharedPreferences.contains(AUTOSTOP_BT_KEY)) {
+            if (null==editor) {
+                editor = sharedPreferences.edit();
+            }
+            editor.putBoolean(AUTOSTOP_BT_KEY, false);
+        }
         if (!sharedPreferences.contains(STOP_ON_POWER_OFF_KEY)) {
             if (null==editor) {
                 editor = sharedPreferences.edit();
             }
             editor.putBoolean(STOP_ON_POWER_OFF_KEY, DEFAULT_STOP_ON_POWER_OFF);
         }
-        if (!sharedPreferences.contains(SEND_BT_METADATA_KEY)) {
+        if (!sharedPreferences.contains(SEND_TRACK_DETAILS_KEY)) {
             if (null==editor) {
                 editor = sharedPreferences.edit();
             }
-            editor.putBoolean(SEND_BT_METADATA_KEY, DEFAULT_SEND_BT_METADATA);
+            boolean defaultSendTrackDetails = sharedPreferences.contains(SEND_BT_METADATA_KEY)
+                    ? sharedPreferences.getBoolean(SEND_BT_METADATA_KEY, DEFAULT_SEND_TRACK_DETAILS)
+                    : DEFAULT_SEND_TRACK_DETAILS;
+            editor.putBoolean(SEND_TRACK_DETAILS_KEY, defaultSendTrackDetails);
         }
         if (!sharedPreferences.contains(SHOW_YEAR_KEY)) {
             if (null==editor) {

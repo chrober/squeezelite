@@ -25,20 +25,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.bluetooth.BluetoothA2dp;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothProfile;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
-import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -46,11 +37,9 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
-import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.view.KeyEvent;
-import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -60,13 +49,6 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.media.MediaBrowserServiceCompat;
 import androidx.media.session.MediaButtonReceiver;
-
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.ImageRequest;
-import com.android.volley.toolbox.Volley;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,26 +78,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private String playerName;
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
-    private ScheduledFuture<?> metadataPollingHandler;
-    private boolean sendBtMetadata = true;
-    private boolean showYear = false;
-    private boolean btA2dpConnected = true;
-    private boolean androidAutoConnected = false;
-    private BroadcastReceiver btA2dpReceiver;
-    private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
-    private boolean hasAudioFocus = false;
-    private final AudioManager.OnAudioFocusChangeListener audioFocusListener = focusChange -> {};
-    private String lastTitle = "";
-    private String lastArtist = "";
-    private String lastAlbum = "";
-    private String lastGenre = "";
-    private long lastDurationMs = 0;
-    private long lastTrackNum = 0;
-    private long lastNumTracks = 0;
-    private String lastArtworkUrl = "";
-    private Bitmap lastArtwork = null;
-    private RequestQueue imageRequestQueue;
+    private volatile NowPlaying nowPlaying;
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -144,10 +107,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable android.os.Bundle rootHints) {
-        androidAutoConnected = true;
-        if (null!=currentServerAddress && sendBtMetadata && null==metadataPollingHandler) {
-            startMetadataPolling();
-        }
         return new BrowserRoot("root", null);
     }
 
@@ -163,6 +122,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         result.sendResult(items);
     }
 
+    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         if (SERVICE_INTERFACE.equals(intent.getAction())) {
@@ -195,8 +155,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
         connectionLostTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 60);
         initialConnectionTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 300);
-        sendBtMetadata = prefs.getBoolean(Prefs.SEND_BT_METADATA_KEY, Prefs.DEFAULT_SEND_BT_METADATA);
-        showYear = prefs.getBoolean(Prefs.SHOW_YEAR_KEY, Prefs.DEFAULT_SHOW_YEAR);
         if (null!=mediaSession) {
             MediaButtonReceiver.handleIntent(mediaSession, intent);
         }
@@ -246,11 +204,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
             Intent quitIntent = new Intent(this, PlayerService.class);
             quitIntent.setAction(QUIT_INTENT);
 
+            String track = null==nowPlaying ? null : nowPlaying.getDescription();
             notificationBuilder
                     .setOngoing(true)
                     .setOnlyAlertOnce(true)
                     .setSmallIcon(R.drawable.ic_mono_icon)
                     .setContentTitle(name + (Utils.isEmpty(currentServerAddress) ? "" : (" (" + currentServerAddress +")")))
+                    .setContentText(track)
                     .setCategory(Notification.CATEGORY_SERVICE)
                     .setContentIntent(pendingIntent)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -325,7 +285,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 public void onPlay() {
                     Utils.debug("");
                     if (null!=lib) {
-                        lib.playPause();
+                        lib.play();
                     }
                 }
 
@@ -333,7 +293,15 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 public void onPause() {
                     Utils.debug("");
                     if (null!=lib) {
-                        lib.playPause();
+                        lib.pause();
+                    }
+                }
+
+                @Override
+                public void onStop() {
+                    Utils.debug("");
+                    if (null!=lib) {
+                        lib.stopPlayback();
                     }
                 }
 
@@ -352,35 +320,37 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
                 @Override
                 public void onSeekTo(long pos) {
-                    if (null != lib) {
-                        lib.sendCommand(new String[]{"time", Double.toString(pos / 1000.0)});
+                    if (null!=lib) {
+                        lib.seekTo(pos);
                     }
                 }
 
+                // Act on ACTION_DOWN, and consume it, so that the event does not also reach the
+                // transport callbacks above. ACTION_UP falls through to super, which ignores it.
+                @Override
                 public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
-                    Utils.debug("");
                     KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                    if (lib!=null && event!=null && 1==event.getAction()) {
+                    if (null!=lib && null!=event && KeyEvent.ACTION_DOWN==event.getAction()) {
                         Utils.debug("KeyCode:" + event.getKeyCode());
                         switch (event.getKeyCode()) {
                             case KeyEvent.KEYCODE_MEDIA_PLAY:
-                                Utils.debug("Play");
-                                lib.playPause();
+                                lib.play();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                                Utils.debug("Pause");
-                                lib.playPause();
+                                lib.pause();
                                 return true;
+                            case KeyEvent.KEYCODE_MEDIA_STOP:
+                                lib.stopPlayback();
+                                return true;
+                            // These do not say which of the two is wanted, so toggle
                             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                                Utils.debug("Play/pause");
+                            case KeyEvent.KEYCODE_HEADSETHOOK:
                                 lib.playPause();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                                Utils.debug("Prev");
                                 lib.prev();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_NEXT:
-                                Utils.debug("Next");
                                 lib.next();
                                 return true;
                             default:
@@ -394,7 +364,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(mediaSessionCallback);
         setSessionToken(mediaSession.getSessionToken());
-        mediaSession.setActive(true);
         mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
                 .setState(PlaybackStateCompat.STATE_NONE, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0f)
                 .setActions(PlaybackStateCompat.ACTION_PLAY
@@ -404,8 +373,11 @@ public class PlayerService extends MediaBrowserServiceCompat {
                         | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                         | PlaybackStateCompat.ACTION_SEEK_TO)
                 .build());
-
-        registerBtA2dpReceiver();
+        mediaSession.setActive(true);
+        if (Prefs.get(this).getBoolean(Prefs.SEND_TRACK_DETAILS_KEY, Prefs.DEFAULT_SEND_TRACK_DETAILS)) {
+            nowPlaying = new NowPlaying(this, lib, mediaSession);
+            nowPlaying.update();
+        }
     }
 
     private void stopPlayer() {
@@ -416,16 +388,29 @@ public class PlayerService extends MediaBrowserServiceCompat {
             wakeLock.release();
             wakeLock = null;
         }
-        unregisterBtA2dpReceiver();
         sendStatus(false);
-        stopMetadataPolling();
         stopTerminateTimer();
-        abandonAudioFocus();
+        if (null!=nowPlaying) {
+            nowPlaying.release();
+            nowPlaying = null;
+        }
         lib.stopPlayer(this);
-        if (null!=mediaSession) {
+        if (mediaSession != null) {
             mediaSession.setActive(false);
             mediaSession.release();
         }
+    }
+
+    public void playbackStateChanged() {
+        Utils.debug("");
+        NowPlaying np = nowPlaying;
+        if (null!=np) {
+            handler.post(np::update);
+        }
+    }
+
+    public void trackChanged() {
+        updateNotification();
     }
 
     private void sendStatus(boolean running) {
@@ -449,10 +434,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         if (Utils.isEmpty(ip)) {
             startTerminateTimer(connectionLostTimeout);
-            stopMetadataPolling();
         } else {
             stopTerminateTimer();
-            startMetadataPolling();
+            // Now that we know where the server is, read what it is playing
+            playbackStateChanged();
         }
     }
 
@@ -470,272 +455,5 @@ public class PlayerService extends MediaBrowserServiceCompat {
             terminateOnConnectionLostHandler.cancel(false);
             terminateOnConnectionLostHandler = null;
         }
-    }
-
-    private void startMetadataPolling() {
-        stopMetadataPolling();
-        if (null != lib && sendBtMetadata && (btA2dpConnected || androidAutoConnected)) {
-            metadataPollingHandler = executorService.scheduleWithFixedDelay(
-                    this::pollMetadata, 0, 2, TimeUnit.SECONDS);
-        }
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private void registerBtA2dpReceiver() {
-        try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (null!=adapter) {
-                btA2dpConnected = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothProfile.STATE_CONNECTED;
-            }
-        } catch (SecurityException e) {
-            Utils.debug("Cannot check A2DP state, assuming connected");
-            btA2dpConnected = true;
-        }
-        btA2dpReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED.equals(intent.getAction())) {
-                    int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED);
-                    boolean wasConnected = btA2dpConnected;
-                    btA2dpConnected = (state == BluetoothProfile.STATE_CONNECTED);
-                    Utils.debug("A2DP state:"+state+", btA2dpConnected:"+btA2dpConnected);
-                    if (btA2dpConnected && !wasConnected && null!=currentServerAddress) {
-                        startMetadataPolling();
-                    } else if (!btA2dpConnected && wasConnected) {
-                        stopMetadataPolling();
-                    }
-                }
-            }
-        };
-        IntentFilter filter = new IntentFilter(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(btA2dpReceiver, filter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(btA2dpReceiver, filter);
-        }
-    }
-
-    private void unregisterBtA2dpReceiver() {
-        if (null!=btA2dpReceiver) {
-            unregisterReceiver(btA2dpReceiver);
-            btA2dpReceiver = null;
-        }
-    }
-
-    private void stopMetadataPolling() {
-        if (null != metadataPollingHandler) {
-            metadataPollingHandler.cancel(false);
-            metadataPollingHandler = null;
-            abandonAudioFocus();
-            if (null != mediaSession) {
-                handler.post(() -> {
-                    if (null != mediaSession) {
-                        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                                .setState(PlaybackStateCompat.STATE_STOPPED, 0, 0f)
-                                .build());
-                        mediaSession.setActive(false);
-                    }
-                });
-            }
-        }
-    }
-
-    private void pollMetadata() {
-        if (null != lib) {
-            lib.queryStatus(this::handleStatusResponse);
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void requestAudioFocus() {
-        if (hasAudioFocus) {
-            return;
-        }
-        if (null == audioManager) {
-            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        }
-        if (null == audioManager) {
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build())
-                    .setOnAudioFocusChangeListener(audioFocusListener)
-                    .build();
-            hasAudioFocus = audioManager.requestAudioFocus(audioFocusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        } else {
-            hasAudioFocus = audioManager.requestAudioFocus(
-                    audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
-            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void abandonAudioFocus() {
-        if (!hasAudioFocus || null == audioManager) {
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && null != audioFocusRequest) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-        } else {
-            audioManager.abandonAudioFocus(audioFocusListener);
-        }
-        hasAudioFocus = false;
-    }
-
-    private void handleStatusResponse(JSONObject response) {
-        if (null == response || null == mediaSession) {
-            return;
-        }
-        try {
-            JSONObject result = response.getJSONObject("result");
-            String mode = result.optString("mode", "stop");
-            double time = result.optDouble("time", 0);
-            int playlistTracks = result.optInt("playlist_tracks", 0);
-
-            String title = "";
-            String artist = "";
-            String album = "";
-            String genre = "";
-            String artworkUrl = "";
-            double duration = 0;
-            int trackNum = 0;
-
-            JSONArray playlistLoop = result.optJSONArray("playlist_loop");
-            if (null!=playlistLoop && playlistLoop.length() > 0) {
-                JSONObject track = playlistLoop.getJSONObject(0);
-                title = track.optString("title", "");
-                artist = track.optString("artist", "");
-                album = track.optString("album", "");
-                genre = track.optString("genre", "");
-                duration = track.optDouble("duration", 0);
-                trackNum = track.optInt("tracknum", 0);
-                int year = track.optInt("year", 0);
-                if (showYear && year > 0 && !album.isEmpty()) {
-                    album = album + " (" + year + ")";
-                }
-                artworkUrl = track.optString("artwork_url", "");
-                if (artworkUrl.isEmpty()) {
-                    String coverId = track.optString("coverid", "");
-                    if (!coverId.isEmpty() && null != lib) {
-                        String serverUrl = lib.getServerUrl();
-                        if (null != serverUrl) {
-                            artworkUrl = serverUrl + "/music/" + coverId + "/cover.jpg";
-                        }
-                    }
-                } else if (artworkUrl.startsWith("/") && null != lib) {
-                    String serverUrl = lib.getServerUrl();
-                    if (null != serverUrl) {
-                        artworkUrl = serverUrl + artworkUrl;
-                    }
-                }
-            }
-
-            long durationMs = (long) (duration * 1000);
-            long positionMs = (long) (time * 1000);
-
-            if (!title.equals(lastTitle) || !artist.equals(lastArtist) ||
-                    !album.equals(lastAlbum) || durationMs != lastDurationMs) {
-                lastTitle = title;
-                lastArtist = artist;
-                lastAlbum = album;
-                lastGenre = genre;
-                lastDurationMs = durationMs;
-                lastTrackNum = trackNum;
-                lastNumTracks = playlistTracks;
-
-                updateMediaSessionMetadata();
-
-                if (!artworkUrl.isEmpty() && !artworkUrl.equals(lastArtworkUrl)) {
-                    lastArtworkUrl = artworkUrl;
-                    fetchArtwork(artworkUrl);
-                }
-            }
-
-            int state;
-            float speed;
-            long reportedPosition;
-            if ("play".equals(mode)) {
-                state = PlaybackStateCompat.STATE_PLAYING;
-                speed = 1.0f;
-                reportedPosition = positionMs;
-                requestAudioFocus();
-            } else if ("pause".equals(mode)) {
-                state = PlaybackStateCompat.STATE_PAUSED;
-                speed = 0f;
-                reportedPosition = positionMs;
-            } else {
-                state = PlaybackStateCompat.STATE_STOPPED;
-                speed = 0f;
-                reportedPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
-                abandonAudioFocus();
-            }
-
-            long actions = PlaybackStateCompat.ACTION_PLAY
-                    | PlaybackStateCompat.ACTION_PAUSE
-                    | PlaybackStateCompat.ACTION_PLAY_PAUSE
-                    | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                    | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                    | PlaybackStateCompat.ACTION_SEEK_TO;
-
-            mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                    .setState(state, reportedPosition, speed)
-                    .setActions(actions)
-                    .build());
-        } catch (Exception e) {
-            Utils.error("Failed to parse status response", e);
-        }
-    }
-
-    private void fetchArtwork(String url) {
-        if (null == imageRequestQueue) {
-            imageRequestQueue = Volley.newRequestQueue(this);
-        }
-        Utils.info("Fetching artwork: " + url);
-        ImageRequest imageRequest = new ImageRequest(url,
-                bitmap -> {
-                    Utils.info("Artwork fetched: " + bitmap.getWidth() + "x" + bitmap.getHeight());
-                    lastArtwork = bitmap;
-                    updateMediaSessionMetadata();
-                },
-                512, 512, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.RGB_565,
-                error -> Utils.error("Failed to fetch artwork: " + url, error));
-        imageRequestQueue.add(imageRequest);
-    }
-
-    private void updateMediaSessionMetadata() {
-        if (null == mediaSession) {
-            return;
-        }
-        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
-        if (!lastTitle.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
-        }
-        if (!lastArtist.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
-        }
-        if (!lastAlbum.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
-        }
-        if (!lastGenre.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, lastGenre);
-        }
-        if (lastDurationMs > 0) {
-            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
-        }
-        if (lastTrackNum > 0) {
-            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, lastTrackNum);
-        }
-        if (lastNumTracks > 0) {
-            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, lastNumTracks);
-        }
-        if (null != lastArtwork) {
-            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
-            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
-        }
-        mediaSession.setMetadata(metaBuilder.build());
     }
 }
