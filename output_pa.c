@@ -338,9 +338,16 @@ void _pa_open(void) {
 
 #endif
 	if (pa.stream) {
-		if ((err = Pa_CloseStream(pa.stream)) != paNoError) {
+		PaStream *old_stream = pa.stream;
+		pa.stream = NULL;
+
+		// Pa_CloseStream can wait for an in-flight data callback, which needs this
+		// mutex - so never close the stream while holding it
+		UNLOCK;
+		if ((err = Pa_CloseStream(old_stream)) != paNoError) {
 			LOG_WARN("error closing stream: %s", Pa_GetErrorText(err));
 		}
+		LOCK;
 	}
 
 	if (output.state == OUTPUT_OFF) {

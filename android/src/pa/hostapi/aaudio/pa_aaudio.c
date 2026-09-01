@@ -402,7 +402,9 @@ static aaudio_data_callback_result_t AaudioDataCallback(AAudioStream *stream, vo
         if( aaudioStream->streamRepresentation.streamFinishedCallback != NULL ) {
             aaudioStream->streamRepresentation.streamFinishedCallback( aaudioStream->streamRepresentation.userData );
         }
-        return AAUDIO_CALLBACK_RESULT_STOP;
+        // Returning STOP races the AAudioStream_close() that follows the finished
+        // callback, and can deadlock inside AAudio. The app stops the stream.
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
     }
     return AAUDIO_CALLBACK_RESULT_CONTINUE;
 }
