@@ -60,33 +60,43 @@ static signature_I_PS       AAudioStream_getFramesPerBurst_ptr = NULL;
 static signature_I_PPB load_signature_I_PPB(void *lib, char *name) {
     return (signature_I_PPB)dlsym(lib, name);
 }
+
 static signature_I_PS load_signature_I_PS(void *lib, char *name) {
     return (signature_I_PS)dlsym(lib, name);
 }
+
 static signature_I_PSPVIL load_signature_I_PSPVIL(void *lib, char *name) {
     return (signature_I_PSPVIL)dlsym(lib, name);
 }
+
 static signature_I_PSCPVIL load_signature_I_PSCPVIL(void *lib, char *name) {
     return (signature_I_PSCPVIL)dlsym(lib, name);
 }
+
 static signature_V_PBI load_signature_V_PBI(void *lib, char *name) {
     return (signature_V_PBI)dlsym(lib, name);
 }
+
 static signature_V_PBPDPV load_signature_V_PBPDPV(void *lib, char *name) {
     return (signature_V_PBPDPV)dlsym(lib, name);
 }
+
 static signature_V_PBPEPV load_signature_V_PBPEPV(void *lib, char *name) {
     return (signature_V_PBPEPV)dlsym(lib, name);
 }
+
 static signature_I_PBPPS load_signature_I_PBPPS(void *lib, char *name) {
     return (signature_I_PBPPS)dlsym(lib, name);
 }
+
 static signature_I_PB load_signature_I_PB(void *lib, char *name) {
     return (signature_I_PB)dlsym(lib, name);
 }
+
 static signature_I_PSCPQPQP load_signature_I_PSCPQPQP(void *lib, char *name) {
     return (signature_I_PSCPQPQP)dlsym(lib, name);
 }
+
 static signature_I_PSPL load_signature_I_PSPL(void *lib, char *name) {
     return (signature_I_PSPL)dlsym(lib, name);
 }
@@ -205,51 +215,85 @@ int32_t LibAAudioStream_getFramesPerBurst(AAudioStream* stream) {
 aaudio_result_t LibAAudio_createStreamBuilder(AAudioStreamBuilder** builder) {
     return AAudio_createStreamBuilder_ptr ? (*AAudio_createStreamBuilder_ptr)(builder) : AAUDIO_ERROR_NULL;
 }
+
 aaudio_result_t LibAAudioStream_close(AAudioStream* stream) {
     return AAudioStream_close_ptr ? (*AAudioStream_close_ptr)(stream) : AAUDIO_ERROR_NULL;
 }
+
 aaudio_result_t LibAAudioStream_requestStart(AAudioStream* stream) {
     return AAudioStream_requestStart_ptr ? (*AAudioStream_requestStart_ptr)(stream) : AAUDIO_ERROR_NULL;
 }
+
 aaudio_result_t LibAAudioStream_requestStop(AAudioStream* stream) {
     return AAudioStream_requestStop_ptr ? (*AAudioStream_requestStop_ptr)(stream) : AAUDIO_ERROR_NULL;
 }
+
 aaudio_result_t LibAAudioStream_read(AAudioStream* stream, void* buffer, int32_t numFrames, int64_t timeoutNanoseconds) {
     return AAudioStream_read_ptr ? (*AAudioStream_read_ptr)(stream, buffer, numFrames, timeoutNanoseconds) : AAUDIO_ERROR_NULL;
 }
+
 aaudio_result_t LibAAudioStream_write(AAudioStream* stream, const void* buffer, int32_t numFrames, int64_t timeoutNanoseconds) {
     return AAudioStream_write_ptr ? (*AAudioStream_write_ptr)(stream, buffer, numFrames, timeoutNanoseconds) : AAUDIO_ERROR_NULL;
 }
+
 void LibAAudioStreamBuilder_setDirection(AAudioStreamBuilder* builder, aaudio_direction_t direction) {
-    if (AAudioStreamBuilder_setDirection_ptr) (*AAudioStreamBuilder_setDirection_ptr)(builder, direction);
+    if (AAudioStreamBuilder_setDirection_ptr) {
+        (*AAudioStreamBuilder_setDirection_ptr)(builder, direction);
+    }
 }
+
 void LibAAudioStreamBuilder_setSampleRate(AAudioStreamBuilder* builder, int32_t sampleRate) {
-    if (AAudioStreamBuilder_setSampleRate_ptr) (*AAudioStreamBuilder_setSampleRate_ptr)(builder, sampleRate);
+    if (AAudioStreamBuilder_setSampleRate_ptr) {
+        (*AAudioStreamBuilder_setSampleRate_ptr)(builder, sampleRate);
+    }
 }
+
 void LibAAudioStreamBuilder_setChannelCount(AAudioStreamBuilder* builder, int32_t channelCount) {
-    if (AAudioStreamBuilder_setChannelCount_ptr) (*AAudioStreamBuilder_setChannelCount_ptr)(builder, channelCount);
+    if (AAudioStreamBuilder_setChannelCount_ptr) {
+        (*AAudioStreamBuilder_setChannelCount_ptr)(builder, channelCount);
+    }
 }
+
 void LibAAudioStreamBuilder_setSharingMode(AAudioStreamBuilder* builder, aaudio_sharing_mode_t sharingMode) {
-    if (AAudioStreamBuilder_setSharingMode_ptr) (*AAudioStreamBuilder_setSharingMode_ptr)(builder, sharingMode);
+    if (AAudioStreamBuilder_setSharingMode_ptr) {
+        (*AAudioStreamBuilder_setSharingMode_ptr)(builder, sharingMode);
+    }
 }
+
 void LibAAudioStreamBuilder_setContentType(AAudioStreamBuilder* builder, aaudio_content_type_t contentType) {
-    if (AAudioStreamBuilder_setContentType_ptr) (*AAudioStreamBuilder_setContentType_ptr)(builder, contentType);
+    if (AAudioStreamBuilder_setContentType_ptr) {
+        (*AAudioStreamBuilder_setContentType_ptr)(builder, contentType);
+    }
 }
+
 void LibAAudioStreamBuilder_setUsage(AAudioStreamBuilder* builder, aaudio_usage_t usage) {
-    if (AAudioStreamBuilder_setUsage_ptr) (*AAudioStreamBuilder_setUsage_ptr)(builder, usage);
+    if (AAudioStreamBuilder_setUsage_ptr) {
+        (*AAudioStreamBuilder_setUsage_ptr)(builder, usage);
+    }
 }
+
 void LibAAudioStreamBuilder_setDataCallback(AAudioStreamBuilder* builder, AAudioStream_dataCallback callback, void* userData) {
-    if (AAudioStreamBuilder_setDataCallback_ptr) (*AAudioStreamBuilder_setDataCallback_ptr)(builder, callback, userData);
+    if (AAudioStreamBuilder_setDataCallback_ptr) {
+        (*AAudioStreamBuilder_setDataCallback_ptr)(builder, callback, userData);
+    }
 }
+
 void LibAAudioStreamBuilder_setErrorCallback(AAudioStreamBuilder* builder, AAudioStream_errorCallback callback, void* userData) {
-    if (AAudioStreamBuilder_setErrorCallback_ptr) (*AAudioStreamBuilder_setErrorCallback_ptr)(builder, callback, userData);
+    if (AAudioStreamBuilder_setErrorCallback_ptr) {
+        (*AAudioStreamBuilder_setErrorCallback_ptr)(builder, callback, userData);
+    }
 }
+
 void LibAAudioStreamBuilder_setFormat(AAudioStreamBuilder* builder, aaudio_format_t format) {
-    if (AAudioStreamBuilder_setFormat_ptr) (*AAudioStreamBuilder_setFormat_ptr)(builder, format);
+    if (AAudioStreamBuilder_setFormat_ptr) {
+        (*AAudioStreamBuilder_setFormat_ptr)(builder, format);
+    }
 }
+
 aaudio_result_t LibAAudioStreamBuilder_openStream(AAudioStreamBuilder* builder, AAudioStream** stream) {
     return AAudioStreamBuilder_openStream_ptr ? (*AAudioStreamBuilder_openStream_ptr)(builder, stream) : AAUDIO_ERROR_NULL;
 }
+
 aaudio_result_t LibAAudioStreamBuilder_delete(AAudioStreamBuilder* builder) {
     return AAudioStreamBuilder_delete_ptr ? (*AAudioStreamBuilder_delete_ptr)(builder) : AAUDIO_ERROR_NULL;
 }

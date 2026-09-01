@@ -86,7 +86,7 @@ static unsigned long nativeBufferSize = 0;
 #define ENSURE(expr, errorText) \
     do { \
         PaError err; \
-        if( UNLIKELY( (err = (expr)) < paNoError ) ) { \
+        if (UNLIKELY( (err = (expr)) < paNoError ) ) { \
             LOGE( "Expression '" #expr "' failed in '" __FILE__ "', line: " PA_STRINGIZE( __LINE__ )); \
             PaUtil_SetLastHostErrorInfo( paInDevelopment, err, errorText ); \
             result = err; \
@@ -274,8 +274,7 @@ static void FillTimeInfo(PaAAudioStream *aaudioStream, AAudioStream *stream,
     aaudioStream->output.framesSubmitted += numFrames;
 
     if (LibAAudio_HasTimestamp() &&
-        LibAAudioStream_getTimestamp(stream, CLOCK_MONOTONIC,
-                                     &framePosition, &timeNanos) == AAUDIO_OK &&
+        LibAAudioStream_getTimestamp(stream, CLOCK_MONOTONIC, &framePosition, &timeNanos) == AAUDIO_OK &&
         framePosition >= 0) {
         src = 1;
     } else if (LibAAudioStream_getFramesRead(stream, &framePosition) == AAUDIO_OK &&
@@ -319,8 +318,12 @@ static void FillTimeInfo(PaAAudioStream *aaudioStream, AAudioStream *stream,
                 double s = (double)(framePosition - aaudioStream->output.prevPairPos) *
                            NS_PER_S / (double)(timeNanos - aaudioStream->output.prevPairNs);
                 /* Clamp so a bad pair can skew at most one window. */
-                if (s > sampleRate * 1.1) s = sampleRate * 1.1;
-                if (s < sampleRate * 0.9) s = sampleRate * 0.9;
+                if (s > sampleRate * 1.1) {
+                    s = sampleRate * 1.1;
+                }
+                if (s < sampleRate * 0.9) {
+                    s = sampleRate * 0.9;
+                }
                 aaudioStream->output.slopeHz = s;
             }
             aaudioStream->output.prevPairPos = framePosition;
@@ -328,8 +331,7 @@ static void FillTimeInfo(PaAAudioStream *aaudioStream, AAudioStream *stream,
             aaudioStream->output.prevPairValid = 1;
             /* Anchor at the pair's capture instant in our time base. */
             aaudioStream->output.anchorPos = (double)framePosition;
-            aaudioStream->output.anchorOurS =
-                ((double)timeNanos + (double)aaudioStream->output.halToOurNs) / NS_PER_S;
+            aaudioStream->output.anchorOurS = ((double)timeNanos + (double)aaudioStream->output.halToOurNs) / NS_PER_S;
             if (!aaudioStream->output.anchorValid) {
                 /* Seed the slope until a pair-to-pair interval exists. */
                 aaudioStream->output.slopeHz = sampleRate;
@@ -340,14 +342,18 @@ static void FillTimeInfo(PaAAudioStream *aaudioStream, AAudioStream *stream,
             return; /* nothing trustworthy yet: keep zeroed timeInfo */
         }
         double dt = ourS - aaudioStream->output.anchorOurS;
-        if (dt < 0) dt = 0;
+        if (dt < 0) {
+            dt = 0;
+        }
         double playedEst = aaudioStream->output.anchorPos + dt * aaudioStream->output.slopeHz;
 
         /* output_pa.c stamps frames_played_dmp at callback start, i.e.
          * framesSubmitted - numFrames. Report the depth against the same
          * count so the two cancel in ms_played regardless of burst sizes. */
         double queuedFrames = (double)(aaudioStream->output.framesSubmitted - numFrames) - playedEst;
-        if (queuedFrames < 0) queuedFrames = 0;
+        if (queuedFrames < 0) {
+            queuedFrames = 0;
+        }
 
         timeInfo->currentTime = ourS;
         timeInfo->outputBufferDacTime = ourS + queuedFrames / sampleRate;
@@ -399,7 +405,7 @@ static aaudio_data_callback_result_t AaudioDataCallback(AAudioStream *stream, vo
     if (result != paContinue) {
         aaudioStream->isActive = 0;
         aaudioStream->isStopped = 1;
-        if( aaudioStream->streamRepresentation.streamFinishedCallback != NULL ) {
+        if (aaudioStream->streamRepresentation.streamFinishedCallback != NULL ) {
             aaudioStream->streamRepresentation.streamFinishedCallback( aaudioStream->streamRepresentation.userData );
         }
         // Returning STOP races the AAudioStream_close() that follows the finished
@@ -416,7 +422,7 @@ static void AaudioErrorCallback(AAudioStream *stream, void *userData, aaudio_res
         PaAAudioStream *aaudioStream = (PaAAudioStream *)userData;
         aaudioStream->isActive = 0;
         aaudioStream->isStopped = 1;
-        if( aaudioStream->streamRepresentation.streamFinishedCallback != NULL ) {
+        if (aaudioStream->streamRepresentation.streamFinishedCallback != NULL ) {
             aaudioStream->streamRepresentation.streamFinishedCallback( aaudioStream->streamRepresentation.userData );
         }
     }
@@ -680,8 +686,7 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation *hostApi, PaStream 
         unsigned long userFrames = framesPerBuffer;
         unsigned long hostFrames = framesPerHostBuffer;
         if (userFrames == paFramesPerBufferUnspecified && aaudioStream->output.use) {
-            int32_t burst = aaudioStream->output.stream
-                ? LibAAudioStream_getFramesPerBurst(aaudioStream->output.stream) : -1;
+            int32_t burst = aaudioStream->output.stream ? LibAAudioStream_getFramesPerBurst(aaudioStream->output.stream) : -1;
             if (burst > 0) {
                 userFrames = (unsigned long)burst;
                 hostFrames = (unsigned long)burst;
