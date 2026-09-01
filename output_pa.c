@@ -478,7 +478,7 @@ static int _write_frames(frames_t out_frames, bool silence, s32_t gainL, s32_t g
 			_apply_cross(outputbuf, out_frames, cross_gain_in, cross_gain_out, cross_ptr);
 		}
 		
-		if (gainL != FIXED_ONE || gainR!= FIXED_ONE) {
+		if (gainL != FIXED_ONE || gainR != FIXED_ONE || (flags & (MONO_LEFT | MONO_RIGHT))) {
 			_apply_gain(outputbuf, out_frames, gainL, gainR, flags);
 		}
 
