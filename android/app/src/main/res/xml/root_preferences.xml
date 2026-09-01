@@ -154,6 +154,13 @@
             app:singleLineTitle="false"/>
         <SwitchPreferenceCompat
             app:iconSpaceReserved="false"
+            app:key="show_year"
+            app:summary="@string/show_year_summary"
+            app:title="@string/show_year"
+            app:defaultValue="false"
+            app:singleLineTitle="false"/>
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
             app:key="autostart_bt"
             app:summary="@string/autostart_bt_summary"
             app:title="@string/autostart_bt"

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Squeezelite</string>
+    <string name="app_name">Squeezelite (chrober)</string>
     <string name="start_player">Start player</string>
     <string name="stop_player">Stop player</string>
     <string name="player_started">Player started</string>
@@ -50,4 +50,6 @@
     <string name="none">None</string>
     <string name="stop_on_power_off">Stop on power off</string>
     <string name="stop_on_power_off_summary">"Stop player application when it's powered off via Lyrion."</string>
+    <string name="show_year">Show year with albums</string>
+    <string name="show_year_summary">When enabled, the album year will be shown next to the album title.</string>
 </resources>

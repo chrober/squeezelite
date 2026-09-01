@@ -38,8 +38,8 @@ import org.json.JSONObject;
  */
 public class NowPlaying {
     private static final String SEPARATOR = " • ";
-    // artist, album, duration, coverid, artwork url, remote stream title, is-remote
-    private static final String TAGS = "tags:aldcKNx";
+    // artist, album, duration, coverid, artwork url, remote stream title, is-remote, year
+    private static final String TAGS = "tags:aldcKNxy";
     // Let LMS settle on the new track, and coalesce a burst of events into a single query
     private static final long QUERY_DELAY = 250;
     // If LMS still reports the previous track then try again after this long
@@ -54,6 +54,7 @@ public class NowPlaying {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable queryTask = this::query;
     private final PlayerService service;
+    private final boolean showYear;
 
     private boolean released = false;
     private int retries = 0;
@@ -69,6 +70,7 @@ public class NowPlaying {
         this.service = service;
         this.lib = lib;
         this.session = session;
+        this.showYear = Prefs.get(service).getBoolean(Prefs.SHOW_YEAR_KEY, Prefs.DEFAULT_SHOW_YEAR);
     }
 
     public void update() {
@@ -126,6 +128,10 @@ public class NowPlaying {
         String artist = firstOf(track, "artist", "trackartist", "albumartist", "artist_name");
         // For a remote stream 'album' is not set, but remote_title names the station
         String album = remote ? firstOf(track, "remote_title") : firstOf(track, "album");
+        int year = track.optInt("year", 0);
+        if (showYear && year>0 && !Utils.isEmpty(album)) {
+            album = album + " (" + year + ")";
+        }
         if (remote && (Utils.isEmpty(title) || title.equals(artist))) {
             // Not every station sends usable metadata - one was seen putting the same changing
             // number in both title and artist. The station name is all LMS always knows.
