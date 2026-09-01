@@ -14,9 +14,19 @@ endif()
 
 file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/../build/)
 
+file(GLOB_RECURSE SL_NATIVE_SOURCES
+    ${CMAKE_SOURCE_DIR}/../src/*.c
+    ${CMAKE_SOURCE_DIR}/../src/*.cpp
+    ${CMAKE_SOURCE_DIR}/../src/*.h
+    ${CMAKE_SOURCE_DIR}/../../*.c
+    ${CMAKE_SOURCE_DIR}/../../*.cpp
+    ${CMAKE_SOURCE_DIR}/../../*.h
+    ${CMAKE_SOURCE_DIR}/../meson.build)
+
 add_custom_command(
     OUTPUT ${CMAKE_SOURCE_DIR}/src/main/jniLibs/${CMAKE_ANDROID_ARCH_ABI}/libsqueezelite.so
     COMMAND python3 ../build.py ${SDK_ROOT} ${NDK_HOME} ${CMAKE_ANDROID_ARCH_ABI} --buildtype=release -Db_ndebug=true -Dwrap_mode=forcefallback
+    DEPENDS ${SL_NATIVE_SOURCES}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/../build/
 )
 

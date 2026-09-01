@@ -48,8 +48,10 @@
 
 #include <android/log.h>
 #include <android/api-level.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "libaaudio.h"
 #include "pa_util.h"
 #include "pa_allocation.h"
@@ -105,6 +107,22 @@ typedef struct {
     int bytesPerSample;
     int channelCount;
     aaudio_format_t format;
+    /* Total frames submitted to the device since start. */
+    int64_t framesSubmitted;
+    /* Position estimator: the HAL timestamp pair only refreshes every
+     * ~100ms while callbacks arrive more often, so most callbacks see a
+     * stale pair. We anchor on each fresh pair and extrapolate on our own
+     * CLOCK_MONOTONIC between refreshes. halToOurNs is the HAL-to-local
+     * clock offset, tracked as a running minimum of observed read-lag. */
+    double anchorPos;
+    double anchorOurS;
+    int anchorValid;
+    double slopeHz;
+    int64_t prevPairPos;
+    int64_t prevPairNs;
+    int prevPairValid;
+    int64_t halToOurNs;
+    int halToOurValid;
 } PaAAStream;
 
 typedef struct {
@@ -234,11 +252,135 @@ static PaError IsInputChannelCountSupported(PaAAudioHostApiRepresentation *hostA
     return paNoError;
 }
 
+/* Fill timeInfo so that consumers can derive the device queue depth:
+ *   device_frames = (outputBufferDacTime - currentTime) * sampleRate
+ * AAudioStream_getTimestamp gives frames played and when; combined with
+ * framesSubmitted this yields the queued depth. If the timestamp is
+ * unavailable (pre-API-26, route changes), fall back to getFramesRead,
+ * then to a zeroed timeInfo. */
+static void FillTimeInfo(PaAAudioStream *aaudioStream, AAudioStream *stream,
+                         int32_t numFrames, PaStreamCallbackTimeInfo *timeInfo) {
+    static const double NS_PER_S = 1000000000.0;
+    static int cbCount = 0;
+    int src = 0; /* 0=none 1=timestamp 2=framesRead */
+    int64_t framePosition = 0;
+    int64_t timeNanos = 0;
+    double sampleRate = aaudioStream->streamRepresentation.streamInfo.sampleRate;
+
+    if (sampleRate <= 0) {
+        return;
+    }
+
+    aaudioStream->output.framesSubmitted += numFrames;
+
+    if (LibAAudio_HasTimestamp() &&
+        LibAAudioStream_getTimestamp(stream, CLOCK_MONOTONIC,
+                                     &framePosition, &timeNanos) == AAUDIO_OK &&
+        framePosition >= 0) {
+        src = 1;
+    } else if (LibAAudioStream_getFramesRead(stream, &framePosition) == AAUDIO_OK &&
+               LibAAudioStream_getTimeNanos(stream, &timeNanos) == AAUDIO_OK &&
+               framePosition >= 0) {
+        src = 2;
+    } else {
+        src = 0;
+    }
+
+    if (0 != src) {
+        double rawQueued = (double)(aaudioStream->output.framesSubmitted) - (double)framePosition;
+        if (rawQueued < 0) {
+            rawQueued = 0; /* timestamp raced/reset */
+        }
+
+        /* Anchor on fresh pairs, extrapolate between them on our own
+         * clock. Never advance on fabricated time. */
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        double ourS = (double)ts.tv_sec + (double)ts.tv_nsec / NS_PER_S;
+        int64_t ourNs = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+        int pairFresh = !aaudioStream->output.prevPairValid ||
+                        framePosition != aaudioStream->output.prevPairPos ||
+                        timeNanos != aaudioStream->output.prevPairNs;
+
+        /* Observed read-lag = offset + pair age (age >= 0), so the true
+         * offset is a lower bound of every observation. */
+        int64_t lagNs = ourNs - timeNanos;
+        if (!aaudioStream->output.halToOurValid || lagNs < aaudioStream->output.halToOurNs) {
+            aaudioStream->output.halToOurNs = lagNs;
+            aaudioStream->output.halToOurValid = 1;
+        }
+        if (pairFresh) {
+            /* Consumption rate since the previous fresh pair. Require the
+             * position to advance so a time-only refresh cannot zero the
+             * slope. */
+            if (aaudioStream->output.prevPairValid &&
+                framePosition > aaudioStream->output.prevPairPos &&
+                timeNanos > aaudioStream->output.prevPairNs + 100000000LL /*100ms*/) {
+                double s = (double)(framePosition - aaudioStream->output.prevPairPos) *
+                           NS_PER_S / (double)(timeNanos - aaudioStream->output.prevPairNs);
+                /* Clamp so a bad pair can skew at most one window. */
+                if (s > sampleRate * 1.1) s = sampleRate * 1.1;
+                if (s < sampleRate * 0.9) s = sampleRate * 0.9;
+                aaudioStream->output.slopeHz = s;
+            }
+            aaudioStream->output.prevPairPos = framePosition;
+            aaudioStream->output.prevPairNs = timeNanos;
+            aaudioStream->output.prevPairValid = 1;
+            /* Anchor at the pair's capture instant in our time base. */
+            aaudioStream->output.anchorPos = (double)framePosition;
+            aaudioStream->output.anchorOurS =
+                ((double)timeNanos + (double)aaudioStream->output.halToOurNs) / NS_PER_S;
+            if (!aaudioStream->output.anchorValid) {
+                /* Seed the slope until a pair-to-pair interval exists. */
+                aaudioStream->output.slopeHz = sampleRate;
+                aaudioStream->output.anchorValid = 1;
+            }
+        }
+        if (!aaudioStream->output.anchorValid) {
+            return; /* nothing trustworthy yet: keep zeroed timeInfo */
+        }
+        double dt = ourS - aaudioStream->output.anchorOurS;
+        if (dt < 0) dt = 0;
+        double playedEst = aaudioStream->output.anchorPos + dt * aaudioStream->output.slopeHz;
+
+        /* output_pa.c stamps frames_played_dmp at callback start, i.e.
+         * framesSubmitted - numFrames. Report the depth against the same
+         * count so the two cancel in ms_played regardless of burst sizes. */
+        double queuedFrames = (double)(aaudioStream->output.framesSubmitted - numFrames) - playedEst;
+        if (queuedFrames < 0) queuedFrames = 0;
+
+        timeInfo->currentTime = ourS;
+        timeInfo->outputBufferDacTime = ourS + queuedFrames / sampleRate;
+        if ((++cbCount % 250) == 0) {
+            LOGD("syncdbg src=%d submitted=%lld played=%lld queuedMs=%.0f rawMs=%.0f estMs=%.0f slope=%.1f lagMs=%.1f dt=%.3f",
+                 src,
+                 (long long)aaudioStream->output.framesSubmitted,
+                 (long long)framePosition,
+                 1000.0 * queuedFrames / sampleRate,
+                 1000.0 * rawQueued / sampleRate,
+                 1000.0 * playedEst / sampleRate,
+                 aaudioStream->output.slopeHz,
+                 (double)aaudioStream->output.halToOurNs / 1000000.0,
+                 dt);
+        }
+        return;
+    }
+
+    /* No timing source: leave zeroed. */
+    if ((++cbCount % 250) == 0) {
+        LOGD("syncdbg src=0 (no timing source)");
+    }
+}
+
 static aaudio_data_callback_result_t AaudioDataCallback(AAudioStream *stream, void *userData, void *audioData, int32_t numFrames) {
     PaAAudioStream *aaudioStream = (PaAAudioStream *)userData;
     PaStreamCallbackTimeInfo timeInfo = {0, 0, 0};
     int result = paContinue;
     unsigned long framesProcessed = 0;
+
+    if (aaudioStream->output.use) {
+        FillTimeInfo(aaudioStream, stream, numFrames, &timeInfo);
+    }
 
     PaUtil_BeginBufferProcessing(&aaudioStream->bufferProcessor, &timeInfo, aaudioStream->cbFlags);
     PaUtil_SetOutputFrameCount(&aaudioStream->bufferProcessor, numFrames);
@@ -299,6 +441,12 @@ static PaError StartStream(PaStream *s) {
     PaUtil_ResetBufferProcessor(&aaudioStream->bufferProcessor);
     aaudioStream->isStopped = 0;
     aaudioStream->isActive = 1;
+    /* Queued-depth bookkeeping starts fresh with the stream. */
+    aaudioStream->output.framesSubmitted = 0;
+    aaudioStream->output.anchorValid = 0;
+    aaudioStream->output.prevPairValid = 0;
+    aaudioStream->output.halToOurValid = 0;
+    aaudioStream->output.slopeHz = 0;
     if (aaudioStream->output.use && aaudioStream->output.stream && LibAAudioStream_requestStart(aaudioStream->output.stream) != AAUDIO_OK) {
         return paUnanticipatedHostError;
     }
@@ -449,13 +597,9 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation *hostApi, PaStream 
                                           streamCallback, userData);
     PaUtil_InitializeCpuLoadMeasurer(&aaudioStream->cpuLoadMeasurer, sampleRate);
 
-    result = PaUtil_InitializeBufferProcessor(&aaudioStream->bufferProcessor, inputChannelCount, inputSampleFormat,
-                                              hostInputSampleFormat, outputChannelCount, outputSampleFormat,
-                                              hostOutputSampleFormat, sampleRate, streamFlags, framesPerBuffer,
-                                              framesPerHostBuffer, paUtilFixedHostBufferSize, streamCallback, userData);
-    if (result != paNoError) {
-        goto error;
-    }
+    /* The buffer processor is initialized below, after the streams are
+     * opened, so the user/host buffer sizes can follow the actual
+     * frames-per-burst. */
 
     aaudioStream->streamRepresentation.streamInfo.sampleRate = sampleRate;
     aaudioStream->framesPerHostCallback = framesPerHostBuffer;
@@ -497,6 +641,9 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation *hostApi, PaStream 
             goto error;
         }
         LibAAudioStreamBuilder_delete(builder);
+        LOGD("syncdbg open: framesPerBuffer=%lu hostCalc=%lu burst=%d",
+             framesPerBuffer, framesPerHostBuffer,
+             LibAAudioStream_getFramesPerBurst(aaudioStream->output.stream));
     }
 
     // Input stream setup
@@ -523,6 +670,29 @@ static PaError OpenStream(struct PaUtilHostApiRepresentation *hostApi, PaStream 
             result = paUnanticipatedHostError; goto error;
         }
         LibAAudioStreamBuilder_delete(builder);
+    }
+
+    /* When no buffer size was requested, use one user callback per AAudio
+     * callback so the buffer processor does not split host callbacks. */
+    {
+        unsigned long userFrames = framesPerBuffer;
+        unsigned long hostFrames = framesPerHostBuffer;
+        if (userFrames == paFramesPerBufferUnspecified && aaudioStream->output.use) {
+            int32_t burst = aaudioStream->output.stream
+                ? LibAAudioStream_getFramesPerBurst(aaudioStream->output.stream) : -1;
+            if (burst > 0) {
+                userFrames = (unsigned long)burst;
+                hostFrames = (unsigned long)burst;
+            }
+        }
+        result = PaUtil_InitializeBufferProcessor(&aaudioStream->bufferProcessor, inputChannelCount, inputSampleFormat,
+                                                  hostInputSampleFormat, outputChannelCount, outputSampleFormat,
+                                                  hostOutputSampleFormat, sampleRate, streamFlags, userFrames,
+                                                  hostFrames, paUtilFixedHostBufferSize, streamCallback, userData);
+        if (result != paNoError) {
+            goto error;
+        }
+        aaudioStream->framesPerHostCallback = hostFrames;
     }
 
     *s = (PaStream *)aaudioStream;

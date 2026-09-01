@@ -30,6 +30,8 @@ typedef void    (*signature_V_PBPDPV)(AAudioStreamBuilder *, AAudioStream_dataCa
 typedef void    (*signature_V_PBPEPV)(AAudioStreamBuilder *, AAudioStream_errorCallback, void *);
 typedef int32_t (*signature_I_PBPPS)(AAudioStreamBuilder *, AAudioStream **stream);
 typedef int32_t (*signature_I_PB)(AAudioStreamBuilder *);
+typedef int32_t (*signature_I_PSCPQPQP)(AAudioStream *, clockid_t, int64_t *, int64_t *);
+typedef int32_t (*signature_I_PSPL)(AAudioStream *, int64_t *);
 
 static signature_I_PPB     AAudio_createStreamBuilder_ptr = NULL;
 static signature_I_PS      AAudioStream_close_ptr = NULL;
@@ -48,6 +50,12 @@ static signature_V_PBPEPV  AAudioStreamBuilder_setErrorCallback_ptr = NULL;
 static signature_V_PBI     AAudioStreamBuilder_setFormat_ptr = NULL;
 static signature_I_PBPPS   AAudioStreamBuilder_openStream_ptr = NULL;
 static signature_I_PB      AAudioStreamBuilder_delete_ptr = NULL;
+/* Optional (API 26+) */
+static signature_I_PSCPQPQP AAudioStream_getTimestamp_ptr = NULL;
+static signature_I_PSPL     AAudioStream_getFramesRead_ptr = NULL;
+static signature_I_PSPL     AAudioStream_getTimeNanos_ptr = NULL;
+/* Optional (API 26+) */
+static signature_I_PS       AAudioStream_getFramesPerBurst_ptr = NULL;
 
 static signature_I_PPB load_signature_I_PPB(void *lib, char *name) {
     return (signature_I_PPB)dlsym(lib, name);
@@ -75,6 +83,12 @@ static signature_I_PBPPS load_signature_I_PBPPS(void *lib, char *name) {
 }
 static signature_I_PB load_signature_I_PB(void *lib, char *name) {
     return (signature_I_PB)dlsym(lib, name);
+}
+static signature_I_PSCPQPQP load_signature_I_PSCPQPQP(void *lib, char *name) {
+    return (signature_I_PSCPQPQP)dlsym(lib, name);
+}
+static signature_I_PSPL load_signature_I_PSPL(void *lib, char *name) {
+    return (signature_I_PSPL)dlsym(lib, name);
 }
 
 int LibAAudio_init() {
@@ -151,7 +165,41 @@ int LibAAudio_init() {
     if (!AAudioStreamBuilder_delete_ptr) {
         return 0;
     }
+    /* Optional: API 26+. */
+    AAudioStream_getTimestamp_ptr = (signature_I_PSCPQPQP)dlsym(aalib, "AAudioStream_getTimestamp");
+    AAudioStream_getFramesRead_ptr = (signature_I_PSPL)dlsym(aalib, "AAudioStream_getFramesRead");
+    AAudioStream_getTimeNanos_ptr = (signature_I_PSPL)dlsym(aalib, "AAudioStream_getTimeNanos");
+    AAudioStream_getFramesPerBurst_ptr = (signature_I_PS)dlsym(aalib, "AAudioStream_getFramesPerBurst");
     return 1;
+}
+
+int LibAAudio_HasTimestamp() {
+    return NULL != AAudioStream_getTimestamp_ptr;
+}
+
+aaudio_result_t LibAAudioStream_getTimestamp(AAudioStream* stream, clockid_t clockId, int64_t* framePosition, int64_t* timeNanoseconds) {
+    return AAudioStream_getTimestamp_ptr
+        ? (*AAudioStream_getTimestamp_ptr)(stream, clockId, framePosition, timeNanoseconds)
+        : AAUDIO_ERROR_NULL;
+}
+
+aaudio_result_t LibAAudioStream_getFramesRead(AAudioStream* stream, int64_t* frames) {
+    return AAudioStream_getFramesRead_ptr
+        ? (*AAudioStream_getFramesRead_ptr)(stream, frames)
+        : AAUDIO_ERROR_NULL;
+}
+
+aaudio_result_t LibAAudioStream_getTimeNanos(AAudioStream* stream, int64_t* nanoseconds) {
+    return AAudioStream_getTimeNanos_ptr
+        ? (*AAudioStream_getTimeNanos_ptr)(stream, nanoseconds)
+        : AAUDIO_ERROR_NULL;
+}
+
+/* Actual frames-per-burst, or -1 when unavailable. */
+int32_t LibAAudioStream_getFramesPerBurst(AAudioStream* stream) {
+    return AAudioStream_getFramesPerBurst_ptr
+        ? (*AAudioStream_getFramesPerBurst_ptr)(stream)
+        : -1;
 }
 
 aaudio_result_t LibAAudio_createStreamBuilder(AAudioStreamBuilder** builder) {
