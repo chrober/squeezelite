@@ -26,7 +26,7 @@
 
 #define MAJOR_VERSION "2.0"
 #define MINOR_VERSION "0"
-#define MICRO_VERSION "1586"
+#define MICRO_VERSION "1595"
 
 #if defined(CUSTOM_VERSION)
 #define VERSION MAJOR_VERSION "." MINOR_VERSION "-" MICRO_VERSION STR(CUSTOM_VERSION)
@@ -500,6 +500,7 @@ char* strcasestr(const char *haystack, const char *needle);
 char *next_param(char *src, char c);
 u32_t gettime_ms(void);
 void get_mac(u8_t *mac);
+bool is_mac_nz(u8_t *mac);
 void set_nonblock(sockfd s);
 void set_recvbufsize(sockfd s);
 int connect_timeout(sockfd sock, const struct sockaddr *addr, socklen_t addrlen, int timeout);
