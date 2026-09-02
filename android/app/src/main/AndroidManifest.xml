@@ -26,6 +26,9 @@
         <meta-data
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="androidx.car.app.TintableAttributionIcon"
+            android:resource="@drawable/ic_mono_icon" />
         <activity
             android:name=".SettingsActivity"
             android:icon="@mipmap/ic_launcher"
@@ -48,6 +51,8 @@
             android:enabled="true"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
             android:process=":squeezelitePlayer">
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService" />

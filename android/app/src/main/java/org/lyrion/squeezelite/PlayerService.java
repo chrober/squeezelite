@@ -44,6 +44,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
@@ -695,7 +696,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private void updatePlaybackState(int state, long position, float speed, long actions) {
         playbackPositionMs = position;
         mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                .setState(state, position, speed)
+                .setState(state, position, speed, SystemClock.elapsedRealtime())
                 .setActions(actions)
                 .build());
 
