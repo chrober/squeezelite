@@ -30,6 +30,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -79,6 +82,19 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
     private volatile NowPlaying nowPlaying;
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private boolean hasAudioFocus = false;
+    private boolean playbackActive = false;
+    private final AudioManager.OnAudioFocusChangeListener audioFocusListener = focusChange -> {
+        if (AudioManager.AUDIOFOCUS_GAIN==focusChange) {
+            hasAudioFocus = true;
+        } else if (AudioManager.AUDIOFOCUS_LOSS==focusChange ||
+                   AudioManager.AUDIOFOCUS_LOSS_TRANSIENT==focusChange ||
+                   AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK==focusChange) {
+            hasAudioFocus = false;
+        }
+    };
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -390,6 +406,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         sendStatus(false);
         stopTerminateTimer();
+        setPlaybackActive(false);
         if (null!=nowPlaying) {
             nowPlaying.release();
             nowPlaying = null;
@@ -411,6 +428,15 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
     public void trackChanged() {
         updateNotification();
+    }
+
+    public void setPlaybackActive(boolean active) {
+        playbackActive = active;
+        if (active) {
+            requestAudioFocus();
+        } else {
+            abandonAudioFocus();
+        }
     }
 
     private void sendStatus(boolean running) {
@@ -455,5 +481,50 @@ public class PlayerService extends MediaBrowserServiceCompat {
             terminateOnConnectionLostHandler.cancel(false);
             terminateOnConnectionLostHandler = null;
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void requestAudioFocus() {
+        if (hasAudioFocus) {
+            return;
+        }
+        if (null==audioManager) {
+            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (null==audioManager) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (null==audioFocusRequest) {
+                audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .build())
+                        .setOnAudioFocusChangeListener(audioFocusListener, handler)
+                        .build();
+            }
+            hasAudioFocus = audioManager.requestAudioFocus(audioFocusRequest)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        } else {
+            hasAudioFocus = audioManager.requestAudioFocus(
+                    audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
+            )==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        }
+        if (!hasAudioFocus) {
+            Utils.warn("Audio focus request was not granted");
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void abandonAudioFocus() {
+        if (!hasAudioFocus || null==audioManager) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && null!=audioFocusRequest) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+        } else {
+            audioManager.abandonAudioFocus(audioFocusListener);
+        }
+        hasAudioFocus = false;
     }
 }

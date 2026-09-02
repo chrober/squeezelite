@@ -210,6 +210,7 @@ public class NowPlaying {
 
     private void setState(int state, long position) {
         this.state = state;
+        service.setPlaybackActive(PlaybackStateCompat.STATE_PLAYING==state);
         session.setPlaybackState(new PlaybackStateCompat.Builder()
                 .setActions(PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_PAUSE |
                             PlaybackStateCompat.ACTION_PLAY_PAUSE | PlaybackStateCompat.ACTION_STOP |
