@@ -38,6 +38,9 @@ w    </string-array>
         <item>8 Mo</item>
         <item>16 Mo</item>
         <item>32 Mo</item>
+        <item>64 Mo</item>
+        <item>128 Mo</item>
+        <item>256 Mo</item>
     </string-array>
     <string-array name="rateLimitWhen">
         <item>Toujours</item>
