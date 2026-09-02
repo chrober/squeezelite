@@ -70,6 +70,9 @@
         <item>8 Mb</item>
         <item>16 Mb</item>
         <item>32 Mb</item>
+        <item>64 Mb</item>
+        <item>128 Mb</item>
+        <item>256 Mb</item>
     </string-array>
     <string-array name="bufferAlias" translatable="false">
         <item>0</item>
@@ -77,6 +80,9 @@
         <item>8</item>
         <item>16</item>
         <item>32</item>
+        <item>64</item>
+        <item>128</item>
+        <item>256</item>
     </string-array>
     <string-array name="rateLimitWhen">
         <item>Always</item>
