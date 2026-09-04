@@ -3,3 +3,6 @@
 • Auto-start on the A2DP connection, not on the radio link - thanks to werdeil.
 • Send current track details to connected devices - thanks to werdeil.
 • Add option to stop on disconnect of any BT audio device.
+• Fix sync issues - thanks to Sören Beye.
+• Fix squeezelite process dying unexpectedly - thanks to Sören Beye.
+• Fix single channel only setting not being respected - thanks to Sören Beye.

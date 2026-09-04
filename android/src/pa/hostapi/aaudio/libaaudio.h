@@ -2,6 +2,7 @@
 #define _LIBAAUDIO_H
 
 #include <aaudio/AAudio.h>
+#include <time.h>
 
 int LibAAudio_init();
 aaudio_result_t LibAAudio_createStreamBuilder(AAudioStreamBuilder** builder);
@@ -21,5 +22,12 @@ void LibAAudioStreamBuilder_setErrorCallback(AAudioStreamBuilder* builder, AAudi
 void LibAAudioStreamBuilder_setFormat(AAudioStreamBuilder* builder, aaudio_format_t format);
 aaudio_result_t LibAAudioStreamBuilder_openStream(AAudioStreamBuilder* builder, AAudioStream** stream);
 aaudio_result_t LibAAudioStreamBuilder_delete(AAudioStreamBuilder* builder);
+/* Optional (API 26+); returns 0 only if available and successful. */
+int LibAAudio_HasTimestamp();
+aaudio_result_t LibAAudioStream_getTimestamp(AAudioStream* stream, clockid_t clockId, int64_t* framePosition, int64_t* timeNanoseconds);
+aaudio_result_t LibAAudioStream_getFramesRead(AAudioStream* stream, int64_t* frames);
+aaudio_result_t LibAAudioStream_getTimeNanos(AAudioStream* stream, int64_t* nanoseconds);
+/* Actual frames-per-burst, or -1 when unavailable. */
+int32_t LibAAudioStream_getFramesPerBurst(AAudioStream* stream);
 
 #endif
