@@ -25,33 +25,21 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.bluetooth.BluetoothA2dp;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothProfile;
-import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
-import android.graphics.Bitmap;
 import android.graphics.Color;
-import android.media.AudioAttributes;
-import android.media.AudioFocusRequest;
-import android.media.AudioManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
-import android.os.SystemClock;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
-import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import android.view.KeyEvent;
-import android.widget.ImageView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -59,17 +47,8 @@ import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
-import androidx.media.app.NotificationCompat.MediaStyle;
 import androidx.media.MediaBrowserServiceCompat;
 import androidx.media.session.MediaButtonReceiver;
-
-import com.android.volley.RequestQueue;
-import com.android.volley.toolbox.ImageRequest;
-import com.android.volley.toolbox.Volley;
-
-import org.lyrion.squeezelite.cometd.CometClient;
-import org.lyrion.squeezelite.cometd.ConnectionState;
-import org.lyrion.squeezelite.cometd.PlayerStatus;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -85,8 +64,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public static final String RUNNING_KEY = "running";
     public static final String NOTIFICATION_CHANNEL_ID = "squeezelite_service";
     private static final int MSG_ID = 1;
-    private static final int STATUS_REQUEST_TIMEOUT = 2000;
-    private static final long STATUS_REFRESH_POSITION_DROP_MS = 5000;
 
     private String currentServerAddress = null;
     private NotificationCompat.Builder notificationBuilder;
@@ -101,30 +78,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private String playerName;
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
-    private CometClient cometClient;
-    private boolean sendBtMetadata = true;
-    private boolean showYear = false;
-    private boolean btA2dpConnected = true;
-    private boolean androidAutoConnected = false;
-    private BroadcastReceiver btA2dpReceiver;
-    private AudioManager audioManager;
-    private AudioFocusRequest audioFocusRequest;
-    private boolean hasAudioFocus = false;
-    private final AudioManager.OnAudioFocusChangeListener audioFocusListener = focusChange -> {};
-    private String lastTitle = "";
-    private String lastArtist = "";
-    private String lastAlbum = "";
-    private String lastGenre = "";
-    private long lastDurationMs = 0;
-    private long lastTrackNum = 0;
-    private long lastNumTracks = 0;
-    private String lastArtworkUrl = "";
-    private Bitmap lastArtwork = null;
-    private RequestQueue imageRequestQueue;
-    private boolean havePlaybackStatus = false;
-    private boolean pendingStatusRequest = false;
-    private String lastMode = "";
-    private long playbackPositionMs = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
+    private volatile NowPlaying nowPlaying;
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -153,10 +107,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable android.os.Bundle rootHints) {
-        androidAutoConnected = true;
-        if (null!=currentServerAddress && sendBtMetadata && null==cometClient) {
-            startCometSubscription();
-        }
         return new BrowserRoot("root", null);
     }
 
@@ -172,6 +122,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         result.sendResult(items);
     }
 
+    @Nullable
     @Override
     public IBinder onBind(Intent intent) {
         if (SERVICE_INTERFACE.equals(intent.getAction())) {
@@ -204,8 +155,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
         connectionLostTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 60);
         initialConnectionTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 300);
-        sendBtMetadata = prefs.getBoolean(Prefs.SEND_BT_METADATA_KEY, Prefs.DEFAULT_SEND_BT_METADATA);
-        showYear = prefs.getBoolean(Prefs.SHOW_YEAR_KEY, Prefs.DEFAULT_SHOW_YEAR);
         if (null!=mediaSession) {
             MediaButtonReceiver.handleIntent(mediaSession, intent);
         }
@@ -255,15 +204,16 @@ public class PlayerService extends MediaBrowserServiceCompat {
             Intent quitIntent = new Intent(this, PlayerService.class);
             quitIntent.setAction(QUIT_INTENT);
 
+            String track = null==nowPlaying ? null : nowPlaying.getDescription();
             notificationBuilder
                     .setOngoing(true)
                     .setOnlyAlertOnce(true)
                     .setSmallIcon(R.drawable.ic_mono_icon)
                     .setContentTitle(name + (Utils.isEmpty(currentServerAddress) ? "" : (" (" + currentServerAddress +")")))
+                    .setContentText(track)
                     .setCategory(Notification.CATEGORY_SERVICE)
                     .setContentIntent(pendingIntent)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setStyle(getMediaStyle())
                     .setVibrate(null)
                     .setSound(null)
                     .setShowWhen(false)
@@ -278,14 +228,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
             Utils.error("Failed to create control notification", e);
         }
         return null;
-    }
-
-    private MediaStyle getMediaStyle() {
-        MediaStyle mediaStyle = new MediaStyle();
-        if (null!=mediaSession) {
-            mediaStyle.setMediaSession(mediaSession.getSessionToken());
-        }
-        return mediaStyle;
     }
 
     private void createNotification() {
@@ -343,7 +285,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 public void onPlay() {
                     Utils.debug("");
                     if (null!=lib) {
-                        lib.playPause();
+                        lib.play();
                     }
                 }
 
@@ -351,7 +293,15 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 public void onPause() {
                     Utils.debug("");
                     if (null!=lib) {
-                        lib.playPause();
+                        lib.pause();
+                    }
+                }
+
+                @Override
+                public void onStop() {
+                    Utils.debug("");
+                    if (null!=lib) {
+                        lib.stopPlayback();
                     }
                 }
 
@@ -370,35 +320,37 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
                 @Override
                 public void onSeekTo(long pos) {
-                    if (null != lib) {
-                        lib.sendCommand(new String[]{"time", Double.toString(pos / 1000.0)});
+                    if (null!=lib) {
+                        lib.seekTo(pos);
                     }
                 }
 
+                // Act on ACTION_DOWN, and consume it, so that the event does not also reach the
+                // transport callbacks above. ACTION_UP falls through to super, which ignores it.
+                @Override
                 public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
-                    Utils.debug("");
                     KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
-                    if (lib!=null && event!=null && 1==event.getAction()) {
+                    if (null!=lib && null!=event && KeyEvent.ACTION_DOWN==event.getAction()) {
                         Utils.debug("KeyCode:" + event.getKeyCode());
                         switch (event.getKeyCode()) {
                             case KeyEvent.KEYCODE_MEDIA_PLAY:
-                                Utils.debug("Play");
-                                lib.playPause();
+                                lib.play();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                                Utils.debug("Pause");
-                                lib.playPause();
+                                lib.pause();
                                 return true;
+                            case KeyEvent.KEYCODE_MEDIA_STOP:
+                                lib.stopPlayback();
+                                return true;
+                            // These do not say which of the two is wanted, so toggle
                             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-                                Utils.debug("Play/pause");
+                            case KeyEvent.KEYCODE_HEADSETHOOK:
                                 lib.playPause();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
-                                Utils.debug("Prev");
                                 lib.prev();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_NEXT:
-                                Utils.debug("Next");
                                 lib.next();
                                 return true;
                             default:
@@ -412,7 +364,6 @@ public class PlayerService extends MediaBrowserServiceCompat {
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(mediaSessionCallback);
         setSessionToken(mediaSession.getSessionToken());
-        mediaSession.setActive(true);
         mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
                 .setState(PlaybackStateCompat.STATE_NONE, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0f)
                 .setActions(PlaybackStateCompat.ACTION_PLAY
@@ -422,9 +373,11 @@ public class PlayerService extends MediaBrowserServiceCompat {
                         | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                         | PlaybackStateCompat.ACTION_SEEK_TO)
                 .build());
-
-        registerBtA2dpReceiver();
-        updateNotification();
+        mediaSession.setActive(true);
+        if (Prefs.get(this).getBoolean(Prefs.SEND_TRACK_DETAILS_KEY, Prefs.DEFAULT_SEND_TRACK_DETAILS)) {
+            nowPlaying = new NowPlaying(this, lib, mediaSession);
+            nowPlaying.update();
+        }
     }
 
     private void stopPlayer() {
@@ -435,16 +388,29 @@ public class PlayerService extends MediaBrowserServiceCompat {
             wakeLock.release();
             wakeLock = null;
         }
-        unregisterBtA2dpReceiver();
         sendStatus(false);
-        stopCometSubscription();
         stopTerminateTimer();
-        abandonAudioFocus();
+        if (null!=nowPlaying) {
+            nowPlaying.release();
+            nowPlaying = null;
+        }
         lib.stopPlayer(this);
-        if (null!=mediaSession) {
+        if (mediaSession != null) {
             mediaSession.setActive(false);
             mediaSession.release();
         }
+    }
+
+    public void playbackStateChanged() {
+        Utils.debug("");
+        NowPlaying np = nowPlaying;
+        if (null!=np) {
+            handler.post(np::update);
+        }
+    }
+
+    public void trackChanged() {
+        updateNotification();
     }
 
     private void sendStatus(boolean running) {
@@ -468,10 +434,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         if (Utils.isEmpty(ip)) {
             startTerminateTimer(connectionLostTimeout);
-            stopCometSubscription();
         } else {
             stopTerminateTimer();
-            startCometSubscription();
+            // Now that we know where the server is, read what it is playing
+            playbackStateChanged();
         }
     }
 
@@ -489,364 +455,5 @@ public class PlayerService extends MediaBrowserServiceCompat {
             terminateOnConnectionLostHandler.cancel(false);
             terminateOnConnectionLostHandler = null;
         }
-    }
-
-    private void startCometSubscription() {
-        stopCometSubscription();
-        if (null != lib && sendBtMetadata && (btA2dpConnected || androidAutoConnected)) {
-            String serverUrl = lib.getServerUrl();
-            String mac = lib.getPlayerMac();
-            if (serverUrl != null && mac != null) {
-                cometClient = new CometClient(serverUrl, mac, new CometClient.StatusListener() {
-                    @Override
-                    public void onPlayerStatus(PlayerStatus status) {
-                        handler.post(() -> handleCometStatus(status));
-                    }
-
-                    @Override
-                    public void onConnectionStateChanged(ConnectionState.State state) {
-                        handler.post(() -> handleCometConnectionState(state));
-                    }
-                });
-                cometClient.connect();
-            }
-        }
-    }
-
-    @SuppressLint("UnspecifiedRegisterReceiverFlag")
-    private void registerBtA2dpReceiver() {
-        try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (null!=adapter) {
-                btA2dpConnected = adapter.getProfileConnectionState(BluetoothProfile.A2DP) == BluetoothProfile.STATE_CONNECTED;
-            }
-        } catch (SecurityException e) {
-            Utils.debug("Cannot check A2DP state, assuming connected");
-            btA2dpConnected = true;
-        }
-        btA2dpReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                if (BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED.equals(intent.getAction())) {
-                    int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, BluetoothProfile.STATE_DISCONNECTED);
-                    boolean wasConnected = btA2dpConnected;
-                    btA2dpConnected = (state == BluetoothProfile.STATE_CONNECTED);
-                    Utils.debug("A2DP state:"+state+", btA2dpConnected:"+btA2dpConnected);
-                    if (btA2dpConnected && !wasConnected && null!=currentServerAddress) {
-                        startCometSubscription();
-                    } else if (!btA2dpConnected && wasConnected && !androidAutoConnected) {
-                        stopCometSubscription();
-                    }
-                }
-            }
-        };
-        IntentFilter filter = new IntentFilter(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(btA2dpReceiver, filter, Context.RECEIVER_EXPORTED);
-        } else {
-            registerReceiver(btA2dpReceiver, filter);
-        }
-    }
-
-    private void unregisterBtA2dpReceiver() {
-        if (null!=btA2dpReceiver) {
-            unregisterReceiver(btA2dpReceiver);
-            btA2dpReceiver = null;
-        }
-    }
-
-    private void stopCometSubscription() {
-        if (null != cometClient) {
-            cometClient.disconnect();
-            cometClient = null;
-            abandonAudioFocus();
-            havePlaybackStatus = false;
-            pendingStatusRequest = false;
-            lastMode = "";
-            playbackPositionMs = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
-            if (null != mediaSession) {
-                handler.post(() -> {
-                    if (null != mediaSession) {
-                        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                                .setState(PlaybackStateCompat.STATE_STOPPED, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 0f)
-                                .build());
-                        mediaSession.setActive(false);
-                    }
-                });
-            }
-        }
-    }
-
-    private void handleCometStatus(PlayerStatus status) {
-        if (null == mediaSession) {
-            return;
-        }
-        if (status.hasTrack && status.hasTime) {
-            pendingStatusRequest = false;
-        }
-        String mode = status.mode;
-        if (Utils.isEmpty(mode)) {
-            mode = lastMode;
-        }
-        if (Utils.isEmpty(mode)) {
-            mode = "stop";
-        }
-
-        long positionMs = status.hasTime
-                ? status.time
-                : ("stop".equals(mode) || PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN==playbackPositionMs
-                    ? 0
-                    : playbackPositionMs);
-
-        if (!status.hasTrack && (!havePlaybackStatus || isTrackChangeStatus(mode, positionMs))) {
-            requestCometStatus();
-            lastMode = mode;
-            return;
-        }
-        if (!havePlaybackStatus || (!"play".equals(lastMode) && "play".equals(mode))) {
-            requestCometStatus();
-        }
-        havePlaybackStatus = true;
-        lastMode = mode;
-
-        String title = lastTitle;
-        String artist = lastArtist;
-        String album = lastAlbum;
-        String genre = lastGenre;
-        long durationMs = lastDurationMs;
-        int trackNum = (int)lastTrackNum;
-        int playlistTracks = (int)lastNumTracks;
-        String artworkUrl = lastArtworkUrl;
-
-        if (status.hasTrack) {
-            title = status.title != null ? status.title : "";
-            artist = status.artist != null ? status.artist : "";
-            album = status.album != null ? status.album : "";
-            genre = status.genre != null ? status.genre : "";
-            durationMs = status.duration;
-            trackNum = status.trackNum;
-            playlistTracks = status.playlistTracks;
-            artworkUrl = resolveArtworkUrl(status.artworkUrl, status.coverId);
-        }
-
-        if (showYear && status.year > 0 && !album.isEmpty()) {
-            album = album + " (" + status.year + ")";
-        }
-
-        boolean metadataChanged = status.hasTrack && (!title.equals(lastTitle) || !artist.equals(lastArtist) ||
-                !album.equals(lastAlbum) || durationMs != lastDurationMs);
-        boolean artworkChanged = status.hasTrack && !artworkUrl.equals(lastArtworkUrl);
-        if (metadataChanged && !status.hasTime) {
-            positionMs = 0;
-            requestCometStatus();
-        }
-
-        int state;
-        float speed;
-        long reportedPosition;
-        if ("play".equals(mode)) {
-            state = PlaybackStateCompat.STATE_PLAYING;
-            speed = 1.0f;
-            reportedPosition = positionMs;
-            requestAudioFocus();
-        } else if ("pause".equals(mode)) {
-            state = PlaybackStateCompat.STATE_PAUSED;
-            speed = 0f;
-            reportedPosition = positionMs;
-        } else {
-            state = PlaybackStateCompat.STATE_STOPPED;
-            speed = 0f;
-            reportedPosition = PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN;
-            abandonAudioFocus();
-        }
-
-        long actions = PlaybackStateCompat.ACTION_PLAY
-                | PlaybackStateCompat.ACTION_PAUSE
-                | PlaybackStateCompat.ACTION_PLAY_PAUSE
-                | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                | PlaybackStateCompat.ACTION_SEEK_TO;
-
-        updatePlaybackState(state, reportedPosition, speed, actions);
-
-        if (metadataChanged) {
-            lastTitle = title;
-            lastArtist = artist;
-            lastAlbum = album;
-            lastGenre = genre;
-            lastDurationMs = durationMs;
-            lastTrackNum = trackNum;
-            lastNumTracks = playlistTracks;
-        }
-
-        if (artworkChanged) {
-            lastArtworkUrl = artworkUrl;
-            lastArtwork = null;
-        }
-
-        if (metadataChanged || artworkChanged) {
-            updateMediaSessionMetadata();
-
-            if (artworkChanged && !artworkUrl.isEmpty()) {
-                fetchArtwork(artworkUrl);
-            }
-        }
-    }
-
-    private void updatePlaybackState(int state, long position, float speed, long actions) {
-        playbackPositionMs = position;
-        mediaSession.setPlaybackState(new PlaybackStateCompat.Builder()
-                .setState(state, position, speed, SystemClock.elapsedRealtime())
-                .setActions(actions)
-                .build());
-
-        if (!mediaSession.isActive() && state != PlaybackStateCompat.STATE_STOPPED) {
-            mediaSession.setActive(true);
-        }
-    }
-
-    private boolean isTrackChangeStatus(String mode, long positionMs) {
-        return "play".equals(mode)
-                && PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN!=playbackPositionMs
-                && positionMs+STATUS_REFRESH_POSITION_DROP_MS < playbackPositionMs;
-    }
-
-    private void requestCometStatus() {
-        if (null==cometClient || pendingStatusRequest) {
-            return;
-        }
-        pendingStatusRequest = true;
-        cometClient.requestStatus();
-        handler.postDelayed(() -> pendingStatusRequest = false, STATUS_REQUEST_TIMEOUT);
-    }
-
-    private void handleCometConnectionState(ConnectionState.State state) {
-        switch (state) {
-            case CONNECTION_COMPLETED:
-                Utils.info("CometD connected");
-                break;
-            case CONNECTION_FAILED:
-            case DISCONNECTED:
-                Utils.info("CometD disconnected: " + state);
-                break;
-            case REHANDSHAKING:
-                Utils.info("CometD rehandshaking...");
-                break;
-        }
-    }
-
-    private String resolveArtworkUrl(String artworkUrl, String coverId) {
-        if (artworkUrl != null && !artworkUrl.isEmpty()) {
-            if (artworkUrl.startsWith("http")) {
-                return artworkUrl;
-            }
-            String serverUrl = lib != null ? lib.getServerUrl() : null;
-            if (serverUrl != null) {
-                if (artworkUrl.startsWith("/")) {
-                    return serverUrl + artworkUrl;
-                }
-                return serverUrl + "/" + artworkUrl;
-            }
-        }
-        if (coverId != null && !coverId.isEmpty() && null != lib) {
-            String serverUrl = lib.getServerUrl();
-            if (null != serverUrl) {
-                return serverUrl + "/music/" + coverId + "/cover.jpg";
-            }
-        }
-        return "";
-    }
-
-    @SuppressWarnings("deprecation")
-    private void requestAudioFocus() {
-        if (hasAudioFocus) {
-            return;
-        }
-        if (null == audioManager) {
-            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-        }
-        if (null == audioManager) {
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build())
-                    .setOnAudioFocusChangeListener(audioFocusListener)
-                    .build();
-            hasAudioFocus = audioManager.requestAudioFocus(audioFocusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        } else {
-            hasAudioFocus = audioManager.requestAudioFocus(
-                    audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN
-            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-        }
-    }
-
-    @SuppressWarnings("deprecation")
-    private void abandonAudioFocus() {
-        if (!hasAudioFocus || null == audioManager) {
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && null != audioFocusRequest) {
-            audioManager.abandonAudioFocusRequest(audioFocusRequest);
-        } else {
-            audioManager.abandonAudioFocus(audioFocusListener);
-        }
-        hasAudioFocus = false;
-    }
-
-    private void fetchArtwork(String url) {
-        if (null == imageRequestQueue) {
-            imageRequestQueue = Volley.newRequestQueue(this);
-        }
-        Utils.info("Fetching artwork: " + url);
-        ImageRequest imageRequest = new ImageRequest(url,
-                bitmap -> {
-                    Utils.info("Artwork fetched: " + bitmap.getWidth() + "x" + bitmap.getHeight());
-                    lastArtwork = bitmap;
-                    updateMediaSessionMetadata();
-                },
-                512, 512, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.RGB_565,
-                error -> Utils.error("Failed to fetch artwork: " + url, error));
-        imageRequestQueue.add(imageRequest);
-    }
-
-    private void updateMediaSessionMetadata() {
-        if (null == mediaSession) {
-            return;
-        }
-        MediaMetadataCompat.Builder metaBuilder = new MediaMetadataCompat.Builder();
-        if (!lastTitle.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, lastTitle);
-        }
-        if (!lastArtist.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, lastArtist);
-        }
-        if (!lastAlbum.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, lastAlbum);
-        }
-        if (!lastGenre.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_GENRE, lastGenre);
-        }
-        if (lastDurationMs > 0) {
-            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs);
-        }
-        if (lastTrackNum > 0) {
-            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_TRACK_NUMBER, lastTrackNum);
-        }
-        if (lastNumTracks > 0) {
-            metaBuilder.putLong(MediaMetadataCompat.METADATA_KEY_NUM_TRACKS, lastNumTracks);
-        }
-        if (!lastArtworkUrl.isEmpty()) {
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, lastArtworkUrl);
-            metaBuilder.putString(MediaMetadataCompat.METADATA_KEY_ART_URI, lastArtworkUrl);
-        }
-        if (null != lastArtwork) {
-            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, lastArtwork);
-            metaBuilder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, lastArtwork);
-        }
-        mediaSession.setMetadata(metaBuilder.build());
     }
 }

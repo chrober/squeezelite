@@ -21,12 +21,15 @@
 package org.lyrion.squeezelite;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.widget.ImageView;
 
 import androidx.annotation.Nullable;
 
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.RequestQueue;
 import com.android.volley.Response;
+import com.android.volley.toolbox.ImageRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 
@@ -40,7 +43,12 @@ public class JsonRpc {
 
     private static class Request extends JsonObjectRequest {
         public Request(String url, @Nullable JSONObject request, Response.Listener<JSONObject> responseListener) {
-            super(Request.Method.POST, url, request, responseListener, null);
+            super(Request.Method.POST, url, request, responseListener, error -> {
+                Utils.warn("Request failed - " + error);
+                if (null!=responseListener) {
+                    responseListener.onResponse(null);
+                }
+            });
         }
     }
 
@@ -54,8 +62,21 @@ public class JsonRpc {
         this.server = new ServerDiscovery.Server(address, ServerDiscovery.Server.DEFAULT_PORT, "");
     }
 
-    public String getServerUrl() {
-        return "http://" + server.ip + ":" + server.port;
+    public String getMac() {
+        return mac;
+    }
+
+    public String getBaseUrl() {
+        return "http://" + server.ip + ":" + server.port + "/";
+    }
+
+    public void fetchImage(String url, int maxSize, Response.Listener<Bitmap> listener) {
+        Utils.debug("URL:" + url);
+        requestQueue.add(new ImageRequest(url, listener, maxSize, maxSize, ImageView.ScaleType.CENTER_INSIDE,
+                Bitmap.Config.RGB_565, error -> {
+                    Utils.warn("Failed to fetch " + url);
+                    listener.onResponse(null);
+                }));
     }
 
     public String getMac() {

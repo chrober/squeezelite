@@ -26,7 +26,7 @@
 
 #define MAJOR_VERSION "2.0"
 #define MINOR_VERSION "0"
-#define MICRO_VERSION "1563"
+#define MICRO_VERSION "1595"
 
 #if defined(CUSTOM_VERSION)
 #define VERSION MAJOR_VERSION "." MINOR_VERSION "-" MICRO_VERSION STR(CUSTOM_VERSION)
@@ -478,6 +478,7 @@ typedef enum { lERROR = 0, lWARN, lINFO, lDEBUG, lSDEBUG } log_level;
 extern void send_output_state_to_app(u8_t spdif, u8_t dac);
 extern void send_volume_to_app(u32_t left, u32_t right);
 extern void send_connection_state_to_app(const char *address);
+extern void send_playback_state_to_app(void);
 extern char * get_ip_str(const struct sockaddr *sa);
 #else
 const char *logtime(void);
@@ -499,6 +500,7 @@ char* strcasestr(const char *haystack, const char *needle);
 char *next_param(char *src, char c);
 u32_t gettime_ms(void);
 void get_mac(u8_t *mac);
+bool is_mac_nz(u8_t *mac);
 void set_nonblock(sockfd s);
 void set_recvbufsize(sockfd s);
 int connect_timeout(sockfd sock, const struct sockaddr *addr, socklen_t addrlen, int timeout);

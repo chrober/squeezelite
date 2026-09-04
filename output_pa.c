@@ -338,9 +338,16 @@ void _pa_open(void) {
 
 #endif
 	if (pa.stream) {
-		if ((err = Pa_CloseStream(pa.stream)) != paNoError) {
+		PaStream *old_stream = pa.stream;
+		pa.stream = NULL;
+
+		// Pa_CloseStream can wait for an in-flight data callback, which needs this
+		// mutex - so never close the stream while holding it
+		UNLOCK;
+		if ((err = Pa_CloseStream(old_stream)) != paNoError) {
 			LOG_WARN("error closing stream: %s", Pa_GetErrorText(err));
 		}
+		LOCK;
 	}
 
 	if (output.state == OUTPUT_OFF) {
@@ -471,7 +478,7 @@ static int _write_frames(frames_t out_frames, bool silence, s32_t gainL, s32_t g
 			_apply_cross(outputbuf, out_frames, cross_gain_in, cross_gain_out, cross_ptr);
 		}
 		
-		if (gainL != FIXED_ONE || gainR!= FIXED_ONE) {
+		if (gainL != FIXED_ONE || gainR != FIXED_ONE || (flags & (MONO_LEFT | MONO_RIGHT))) {
 			_apply_gain(outputbuf, out_frames, gainL, gainR, flags);
 		}
 

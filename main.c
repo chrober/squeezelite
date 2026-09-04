@@ -1,14 +1,14 @@
-/* 
+/*
  *  Squeezelite - lightweight headless squeezebox emulator
  *
  *  (c) Adrian Smith 2012-2015, triode1@btinternet.com
  *      Ralph Irving 2015-2026, ralph_irving@hotmail.com
- *  
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -115,7 +115,7 @@ static void usage(const char *argv0) {
 			"  -S <Power Script>\tAbsolute path to script to launch on power commands from LMS\n"
 #endif
 #if RESAMPLE
-		   "  -R -u [params]\tResample, params = <recipe>:<flags>:<attenuation>:<precision>:<passband_end>:<stopband_start>:<phase_response>,\n" 
+		   "  -R -u [params]\tResample, params = <recipe>:<flags>:<attenuation>:<precision>:<passband_end>:<stopband_start>:<phase_response>,\n"
 		   "  \t\t\t recipe = (v|h|m|l|q)(L|I|M)(s) [E|X], E = exception - resample only if native rate not supported, X = async - resample to max rate for device, otherwise to max sync rate\n"
 		   "  \t\t\t flags = num in hex,\n"
 		   "  \t\t\t attenuation = attenuation in dB to apply (default is -1db if not explicitly set),\n"
@@ -145,6 +145,8 @@ static void usage(const char *argv0) {
 #if LINUX || FREEBSD || SUN
 		   "  -z \t\t\tDaemonize\n"
 #endif
+		   "  -k \t\t\tTerminate if MAC address bytes are all zero\n"
+		   "  -K \t\t\tWait until MAC address bytes are not all zero\n"
 		   "  -Z <rate>\t\tReport rate to server in helo as the maximum sample rate we can support\n"
 		   "  -t \t\t\tLicense terms\n"
 		   "  -? \t\t\tDisplay this help text\n"
@@ -264,7 +266,7 @@ static void license(void) {
 
 		   "\nThe source and patches for bundled 3rd party libraries can be found on\n"
 		   "SourceForge. <https://sourceforge.net/projects/lmsclients/files/source/>\n"
-#if DSD		   
+#if DSD
 		   "\nContains dsd2pcm library Copyright 2009, 2011 Sebastian Gesemann which\n"
 		   "is subject to its own license.\n"
 		   "\nContains the Daphile Project full dsd patch Copyright 2013-2017 Daphile,\n"
@@ -280,7 +282,7 @@ static void license(void) {
 #if OPUS
 		   "\nOpus decoder support (c) Philippe 2018-2026, philippe_44@outlook.com\n"
 #endif
-#if ALAC	
+#if ALAC
 		   "\nContains Apple Lossless (ALAC) decoder. Apache License Version 2.0\n"
 		   "Apple ALAC decoder support (c) Philippe 2018-2026, philippe_44@outlook.com\n"
 #endif
@@ -306,7 +308,7 @@ int main(int argc, char **argv) {
 	extern bool pcm_check_header;
 	extern bool user_rates;
 	char *logfile = NULL;
-	u8_t mac[6];
+	u8_t mac[6]={0,0,0,0,0,0};
 	unsigned stream_buf_size = STREAMBUF_SIZE;
 	unsigned output_buf_size = 0; // set later
 	unsigned rates[MAX_SUPPORTED_SAMPLERATES] = { 0 };
@@ -336,6 +338,9 @@ int main(int argc, char **argv) {
 #if IR
 	char *lircrc = NULL;
 #endif
+	bool mac_set_on_cmdline = false;
+	bool wait_nz_mac = false;
+	bool exit_on_zero_mac = false;
 
 	log_level log_output = lWARN;
 	log_level log_stream = lWARN;
@@ -354,8 +359,6 @@ int main(int argc, char **argv) {
 #define MAXCMDLINE 512
 	char cmdline[MAXCMDLINE] = "";
 
-	get_mac(mac);
-
 	for (i = 0; i < argc && (strlen(argv[i]) + strlen(cmdline) + 2 < MAXCMDLINE); i++) {
 		strcat(cmdline, argv[i]);
 		strcat(cmdline, " ");
@@ -370,7 +373,7 @@ int main(int argc, char **argv) {
 				   , opt) && optind < argc - 1) {
 			optarg = argv[optind + 1];
 			optind += 2;
-		} else if (strstr("ltz?W"
+		} else if (strstr("kKltz?W"
 #if ALSA
 						  "LX"
 #endif
@@ -412,7 +415,7 @@ int main(int argc, char **argv) {
 		case 'a':
 			output_params = optarg;
 			break;
-		case 'b': 
+		case 'b':
 			{
 				char *s = next_param(optarg, ':');
 				char *o = next_param(NULL, ':');
@@ -466,13 +469,14 @@ int main(int argc, char **argv) {
 					mac[byte++] = (u8_t)strtoul(t, &tmp, 16);
 					t = strtok(NULL, ":");
 				}
+				mac_set_on_cmdline = true;
 			}
 			break;
 		case 'M':
 			modelname = optarg;
 			break;
 		case 'r':
-			{ 
+			{
 				char *rstr = next_param(optarg, ':');
 				char *dstr = next_param(NULL, ':');
 				if (rstr && strstr(rstr, ",")) {
@@ -481,7 +485,7 @@ int main(int argc, char **argv) {
 					unsigned tmp[MAX_SUPPORTED_SAMPLERATES] = { 0 };
 					int i, j;
 					int last = 999999;
-					for (i = 0; r && i < MAX_SUPPORTED_SAMPLERATES; ++i) { 
+					for (i = 0; r && i < MAX_SUPPORTED_SAMPLERATES; ++i) {
 						tmp[i] = atoi(r);
 						r = next_param(NULL, ',');
 					}
@@ -571,11 +575,11 @@ int main(int argc, char **argv) {
 				char *fstr = next_param(NULL, ':');
 				dsd_delay = dstr ? atoi(dstr) : 0;
 				if (fstr) {
-					if (!strcmp(fstr, "dop")) dsd_outfmt = DOP; 
-					if (!strcmp(fstr, "u8")) dsd_outfmt = DSD_U8; 
-					if (!strcmp(fstr, "u16le")) dsd_outfmt = DSD_U16_LE; 
-					if (!strcmp(fstr, "u32le")) dsd_outfmt = DSD_U32_LE; 
-					if (!strcmp(fstr, "u16be")) dsd_outfmt = DSD_U16_BE; 
+					if (!strcmp(fstr, "dop")) dsd_outfmt = DOP;
+					if (!strcmp(fstr, "u8")) dsd_outfmt = DSD_U8;
+					if (!strcmp(fstr, "u16le")) dsd_outfmt = DSD_U16_LE;
+					if (!strcmp(fstr, "u32le")) dsd_outfmt = DSD_U32_LE;
+					if (!strcmp(fstr, "u16be")) dsd_outfmt = DSD_U16_BE;
 					if (!strcmp(fstr, "u32be")) dsd_outfmt = DSD_U32_BE;
 					if (!strcmp(fstr, "dop24")) dsd_outfmt = DOP_S24_LE;
 					if (!strcmp(fstr, "dop24_3")) dsd_outfmt = DOP_S24_3LE;
@@ -693,6 +697,13 @@ int main(int argc, char **argv) {
 #endif /* SUN */
 			break;
 #endif
+		case 'k':
+			exit_on_zero_mac = true;
+			break;
+		case 'K':
+			wait_nz_mac = true;
+			exit_on_zero_mac = true;
+			break;
 		case 't':
 			license();
 			exit(0);
@@ -794,7 +805,31 @@ int main(int argc, char **argv) {
 #if DSD
 	dsd_init(dsd_outfmt, dsd_delay);
 #endif
-
+	if (!mac_set_on_cmdline) {
+		/*
+		 * - a MAC address was not specified on command line,
+		 * Retrieve and use the MAC address from a network interface or environment variable,
+		 */
+		get_mac(mac);
+		if(!is_mac_nz(mac) && wait_nz_mac) {
+			LOG_ERROR("Got all zeros for mac address: retrying every second");
+			while(!is_mac_nz(mac)) {
+				/*
+				 * if all MAC address byte values are 0 then
+				 *  - a MAC address was not specified in environment variable
+				 *  - and no network interface is up - yet
+				 * sleep for a second and try retrieving MAC address from a network interface, ad inifinitum.
+				 */
+				sleep(1);
+				get_mac(mac);
+			}
+		}
+		if(!is_mac_nz(mac) && exit_on_zero_mac) {
+			/* exit if all MAC address byte values are 0 */
+			fprintf(stderr, "Got all zeros for mac address.\n");
+			exit(1);
+		}
+	}
 #if VISEXPORT
 	if (visexport) {
 		output_vis_init(log_output, mac);
@@ -860,7 +895,7 @@ int main(int argc, char **argv) {
 
 #if USE_SSL && !LINKALL && !NO_SSLSYM
 	free_ssl_symbols();
-#endif	
+#endif
 
 	exit(0);
 }
