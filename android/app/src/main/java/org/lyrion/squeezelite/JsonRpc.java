@@ -79,10 +79,6 @@ public class JsonRpc {
                 }));
     }
 
-    public String getMac() {
-        return mac;
-    }
-
     public void sendMessage(String[] command) {
         sendMessage(command, null);
     }
