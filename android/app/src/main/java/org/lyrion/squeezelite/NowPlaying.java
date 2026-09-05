@@ -20,6 +20,7 @@
 
 package org.lyrion.squeezelite;
 
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Looper;
@@ -38,8 +39,8 @@ import org.json.JSONObject;
  */
 public class NowPlaying {
     private static final String SEPARATOR = " • ";
-    // artist, album, duration, coverid, artwork url, remote stream title, is-remote
-    private static final String TAGS = "tags:aldcKNx";
+    // artist, album, duration, coverid, artwork url, remote stream title, is-remote, year
+    private static final String TAGS = "tags:aldcKNxy";
     // Let LMS settle on the new track, and coalesce a burst of events into a single query
     private static final long QUERY_DELAY = 250;
     // If LMS still reports the previous track then try again after this long
@@ -64,6 +65,9 @@ public class NowPlaying {
     private Bitmap cover = null;
     private MediaMetadataCompat.Builder metadata = null;
     private String description = null;
+    private Boolean serverShowYear = null;
+    private boolean fetchingServerShowYear = false;
+    private int serverGeneration = 0;
 
     public NowPlaying(PlayerService service, Library lib, MediaSessionCompat session) {
         this.service = service;
@@ -91,14 +95,48 @@ public class NowPlaying {
         return description;
     }
 
+    public void serverChanged() {
+        serverShowYear = null;
+        fetchingServerShowYear = false;
+        serverGeneration++;
+    }
+
     private void query() {
         if (released) {
             return;
         }
+        if (Prefs.ALBUM_YEAR_SERVER.equals(albumYear())) {
+            queryServerShowYear();
+            return;
+        }
+        queryStatus();
+    }
+
+    private void queryStatus() {
         lib.getStatus(TAGS, response -> {
             if (!released) {
                 handleStatus(response);
             }
+        });
+    }
+
+    private void queryServerShowYear() {
+        if (fetchingServerShowYear) {
+            return;
+        }
+        fetchingServerShowYear = true;
+        int generation = serverGeneration;
+        lib.getPref("showYear", response -> {
+            if (released || generation!=serverGeneration) {
+                return;
+            }
+            fetchingServerShowYear = false;
+            JSONObject result = null==response ? null : response.optJSONObject("result");
+            String showYear = null==result ? "" : result.optString("_p2", "");
+            if ("0".equals(showYear) || "1".equals(showYear)) {
+                serverShowYear = "1".equals(showYear);
+            }
+            queryStatus();
         });
     }
 
@@ -126,6 +164,11 @@ public class NowPlaying {
         String artist = firstOf(track, "artist", "trackartist", "albumartist", "artist_name");
         // For a remote stream 'album' is not set, but remote_title names the station
         String album = remote ? firstOf(track, "remote_title") : firstOf(track, "album");
+        String albumYear = albumYear();
+        if (!remote && (Prefs.ALBUM_YEAR_YES.equals(albumYear) ||
+                        (Prefs.ALBUM_YEAR_SERVER.equals(albumYear) && Boolean.TRUE.equals(serverShowYear)))) {
+            album = appendYear(album, track.optInt("year", 0));
+        }
         if (remote && (Utils.isEmpty(title) || title.equals(artist))) {
             // Not every station sends usable metadata - one was seen putting the same changing
             // number in both title and artist. The station name is all LMS always knows.
@@ -222,6 +265,15 @@ public class NowPlaying {
         session.setMetadata(metadata.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, cover)
                                     .putBitmap(MediaMetadataCompat.METADATA_KEY_ART, cover)
                                     .build());
+    }
+
+    private String albumYear() {
+        SharedPreferences prefs = Prefs.get(service);
+        return prefs.getString(Prefs.ALBUM_YEAR_KEY, Prefs.DEFAULT_ALBUM_YEAR);
+    }
+
+    private static String appendYear(String album, int year) {
+        return year>0 && !Utils.isEmpty(album) ? album + " (" + year + ")" : album;
     }
 
     private void fetchCover(String url) {

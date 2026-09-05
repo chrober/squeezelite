@@ -238,6 +238,7 @@ public class SettingsActivity extends AppCompatActivity {
             updateSummary(Prefs.STREAM_BUFFER_KEY);
             updateSummary(Prefs.BT_MAC_ADDRESSES_KEY);
             updateSummary(Prefs.START_ON_BOOT_DELAY_KEY);
+            updateSummary(Prefs.ALBUM_YEAR_KEY);
             PreferenceManager.getDefaultSharedPreferences(getContext()).registerOnSharedPreferenceChangeListener(this);
         }
 
