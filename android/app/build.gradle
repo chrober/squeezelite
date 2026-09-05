@@ -2,7 +2,7 @@ apply plugin: 'com.android.application'
 
 android {
     defaultConfig {
-        applicationId "org.lyrion.squeezelite"
+        applicationId "org.lyrion.squeezelite.chrober"
         compileSdk 35
         minSdkVersion 23
         targetSdkVersion 34
