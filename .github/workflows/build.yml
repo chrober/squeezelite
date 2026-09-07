@@ -36,6 +36,41 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Cache native source downloads
+        uses: actions/cache@v4
+        with:
+          path: android/build/lib/download
+          key: native-source-downloads-${{ hashFiles('android/python/build/libs.py') }}
+          restore-keys: native-source-downloads-
+
+      - name: Prefetch SourceForge dependencies
+        run: |
+          set -euo pipefail
+          mkdir -p android/build/lib/download
+
+          fetch() {
+            local url="$1"
+            local md5="$2"
+            local file="android/build/lib/download/$3"
+
+            if [ -f "$file" ] && echo "$md5  $file" | md5sum --check --status; then
+              echo "$file already present"
+              return
+            fi
+
+            rm -f "$file"
+            curl --location --fail --retry 5 --retry-all-errors --connect-timeout 30 --max-time 300 \
+              --output "$file" "$url"
+            echo "$md5  $file" | md5sum --check --status
+          }
+
+          fetch "https://downloads.sourceforge.net/project/mad/libmad/0.15.1b/libmad-0.15.1b.tar.gz" \
+            "1be543bc30c56fb6bea1d7bf6a64e66c" "libmad-0.15.1b.tar.gz"
+          fetch "https://downloads.sourceforge.net/project/faac/faad2-src/faad2-2.8.0/faad2-2.8.8.tar.gz" \
+            "28f6116efdbe9378269f8a6221767d1f" "faad2-2.8.8.tar.gz"
+          fetch "https://downloads.sourceforge.net/project/soxr/soxr-0.1.3-Source.tar.xz" \
+            "3f16f4dcb35b471682d4321eda6f6c08" "soxr-0.1.3-Source.tar.xz"
+
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
