@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Squeezelite</string>
+    <string name="app_name">Squeezelite (chrober)</string>
     <string name="start_player">Start player</string>
     <string name="stop_player">Stop player</string>
     <string name="player_started">Player started</string>
