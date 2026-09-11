@@ -46,4 +46,6 @@
     <string name="none">Немає</string>
     <string name="stop_on_power_off">Зупинка при вимкненні</string>
     <string name="stop_on_power_off_summary">"Зупинити роботу програми програвача при вимкненні живлення через Lyrion."</string>
+    <string name="android_auto_playback_only">Squeezelite призначений лише для відтворення.</string>
+    <string name="android_auto_browse_hint">Вибирайте музику за допомогою контролера Lyrion.</string>
 </resources>

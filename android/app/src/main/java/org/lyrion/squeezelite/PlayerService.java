@@ -25,39 +25,51 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.view.KeyEvent;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
+import androidx.media.MediaBrowserServiceCompat;
 import androidx.media.session.MediaButtonReceiver;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-public class PlayerService extends Service {
+public class PlayerService extends MediaBrowserServiceCompat {
     // How long after losing connection to server should we stop player?
     public static final String STATUS_INTENT = PlayerService.class.getCanonicalName()+".STATUS";
     private static final String QUIT_INTENT = PlayerService.class.getCanonicalName() + ".QUIT";
     public static final String RUNNING_KEY = "running";
     public static final String NOTIFICATION_CHANNEL_ID = "squeezelite_service";
     private static final int MSG_ID = 1;
+    private static final String MEDIA_ROOT_ID = "root";
+    private static final String MEDIA_INFO_ID = "__INFO__";
 
     private String currentServerAddress = null;
     private NotificationCompat.Builder notificationBuilder;
@@ -73,6 +85,11 @@ public class PlayerService extends Service {
     private MediaSessionCompat mediaSession;
     private MediaSessionCompat.Callback mediaSessionCallback;
     private volatile NowPlaying nowPlaying;
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private boolean hasAudioFocus = false;
+    private final AudioManager.OnAudioFocusChangeListener audioFocusListener =
+            focusChange -> Utils.debug("Audio focus:" + focusChange);
 
     public PlayerService() {
         handler = new Handler(Looper.getMainLooper());
@@ -100,7 +117,33 @@ public class PlayerService extends Service {
 
     @Nullable
     @Override
+    public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid,
+                                 @Nullable Bundle rootHints) {
+        return new BrowserRoot(MEDIA_ROOT_ID, null);
+    }
+
+    @Override
+    public void onLoadChildren(@NonNull String parentId,
+                               @NonNull Result<List<MediaBrowserCompat.MediaItem>> result) {
+        if (!MEDIA_ROOT_ID.equals(parentId) && !MEDIA_INFO_ID.equals(parentId)) {
+            result.sendResult(Collections.emptyList());
+            return;
+        }
+        MediaDescriptionCompat description = new MediaDescriptionCompat.Builder()
+                .setMediaId(MEDIA_INFO_ID)
+                .setTitle(getString(R.string.android_auto_playback_only))
+                .setSubtitle(getString(R.string.android_auto_browse_hint))
+                .build();
+        result.sendResult(Collections.singletonList(new MediaBrowserCompat.MediaItem(
+                description, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE)));
+    }
+
+    @Nullable
+    @Override
     public IBinder onBind(Intent intent) {
+        if (null!=intent && SERVICE_INTERFACE.equals(intent.getAction())) {
+            return super.onBind(intent);
+        }
         return null;
     }
 
@@ -263,6 +306,15 @@ public class PlayerService extends Service {
                 }
 
                 @Override
+                public void onPlayFromSearch(String query, Bundle extras) {
+                    Utils.debug("");
+                    // Squeezelite has no catalog to search; resume the item selected in LMS.
+                    if (null!=lib) {
+                        lib.play();
+                    }
+                }
+
+                @Override
                 public void onPause() {
                     Utils.debug("");
                     if (null!=lib) {
@@ -336,6 +388,7 @@ public class PlayerService extends Service {
         }
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(mediaSessionCallback);
+        setSessionToken(mediaSession.getSessionToken());
         if (Prefs.get(this).getBoolean(Prefs.SEND_TRACK_DETAILS_KEY, Prefs.DEFAULT_SEND_TRACK_DETAILS)) {
             // Only activate the session when there is something to publish - Android will not
             // relay its contents to connected devices otherwise
@@ -359,6 +412,7 @@ public class PlayerService extends Service {
             nowPlaying.release();
             nowPlaying = null;
         }
+        abandonAudioFocus();
         lib.stopPlayer(this);
         if (mediaSession != null) {
             mediaSession.setActive(false);
@@ -376,6 +430,56 @@ public class PlayerService extends Service {
 
     public void trackChanged() {
         updateNotification();
+    }
+
+    void updateAudioFocus(int playbackState) {
+        if (PlaybackStateCompat.STATE_PLAYING==playbackState) {
+            requestAudioFocus();
+        } else if (PlaybackStateCompat.STATE_STOPPED==playbackState) {
+            abandonAudioFocus();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void requestAudioFocus() {
+        if (hasAudioFocus) {
+            return;
+        }
+        if (null==audioManager) {
+            audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        }
+        if (null==audioManager) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (null==audioFocusRequest) {
+                audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .build())
+                        .setOnAudioFocusChangeListener(audioFocusListener)
+                        .build();
+            }
+            hasAudioFocus = AudioManager.AUDIOFOCUS_REQUEST_GRANTED==
+                    audioManager.requestAudioFocus(audioFocusRequest);
+        } else {
+            hasAudioFocus = AudioManager.AUDIOFOCUS_REQUEST_GRANTED==audioManager.requestAudioFocus(
+                    audioFocusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void abandonAudioFocus() {
+        if (!hasAudioFocus || null==audioManager) {
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && null!=audioFocusRequest) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+        } else {
+            audioManager.abandonAudioFocus(audioFocusListener);
+        }
+        hasAudioFocus = false;
     }
 
     private void sendStatus(boolean running) {

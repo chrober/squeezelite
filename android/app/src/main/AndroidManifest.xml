@@ -22,6 +22,10 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true"
         android:dataExtractionRules="@xml/data_extraction_rules">
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <activity
             android:name=".SettingsActivity"
             android:icon="@mipmap/ic_launcher"
@@ -45,6 +49,10 @@
             android:exported="true"
             android:foregroundServiceType="mediaPlayback"
             android:process=":squeezelitePlayer">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+            </intent-filter>
         </service>
 
         <receiver
