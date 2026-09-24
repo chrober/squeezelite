@@ -1,4 +1,4 @@
-# Android Auto Testing
+# Android Auto testing
 
 > This guide documents the experimental Android Auto support in the `chrober` forks. It applies to the fork-only `build/android-auto-apk` branches and is not part of the upstream projects or their pull requests.
 
@@ -9,7 +9,7 @@ The Android Auto experience is split between two applications:
 
 For the two APKs to work together, start Squeezelite and select `Squeezelite (chrober)` as the local player application in Lyrion's settings.
 
-## Test An APK In A Car
+## Test an APK in a Car
 
 These steps are for a person installing the signed APKs from the GitHub Actions artifacts. Android system developer options, USB debugging, Android Studio, and the Desktop Head Unit are not required.
 
@@ -24,7 +24,7 @@ These steps are for a person installing the signed APKs from the GitHub Actions 
 
 Android Auto labels and menu placement vary a little by Android Auto version and device manufacturer. Updating Android Auto from Google Play before testing is recommended.
 
-## Develop With The Desktop Head Unit
+## Develop with the Desktop Head Unit
 
 The Desktop Head Unit (DHU) emulates a standard Android Auto head unit on a laptop. It is useful for iterating on the Android Auto UI, media browsing, transport controls, and focus behaviour before using a car. It cannot reproduce every physical head unit or phone-vendor audio-routing behaviour, so real-car testing remains necessary.
 
@@ -40,7 +40,7 @@ For DHU versions, platform-specific prerequisites, and the complete command refe
 
 For local Squeezelite builds, install the native build dependencies listed in the [Squeezelite README](../README.md). The Android project currently uses Android SDK Platform 35, Build Tools 35.0.0, and NDK r27.2.12479018.
 
-### Build And Install Both Apps
+### Build and install both apps
 
 Use branches that contain the Android Auto code. The fork APK build overlay lives on `build/android-auto-apk`; it also changes the application IDs and names so the test apps can be installed alongside upstream releases.
 
@@ -66,7 +66,7 @@ adb uninstall com.craigd.lmsmaterial.app.chrober
 
 Start both phone apps once, connect each to LMS, and select **Squeezelite (chrober)** in **Settings** > **Local player** > **Player app** before starting the DHU.
 
-### Connect The DHU Through ADB Tunnelling
+### Connect the DHU through ADB tunnelling
 
 ADB tunnelling is the most convenient starting point on Windows because DHU USB accessory mode may need a WinUSB driver and can interfere with the normal ADB connection.
 
@@ -102,7 +102,7 @@ keycode media_previous
 
 `focus audio off` simulates the head unit using another audio source; `focus audio on` restores Android Auto audio focus. These are particularly useful when checking focus-loss and recovery behaviour.
 
-### USB Accessory Mode Alternative
+### USB accessory mode alternative
 
 DHU 2.x can also act as a USB accessory directly:
 

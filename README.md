@@ -9,7 +9,7 @@ Features:
 4. Support for Bluetooth media controls
 5. Confgurable bit rate limiting
 
-## Experimental Android Auto Support
+## Experimental Android Auto support
 
 The `chrober` fork's `build/android-auto-apk` branch contains experimental Android Auto support and a fork-only APK workflow. The local development and APK-testing guide is in [docs/android-auto.md](docs/android-auto.md). It is not part of the upstream project or its pull requests.
 
