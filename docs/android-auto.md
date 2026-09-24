@@ -28,6 +28,8 @@ Android Auto labels and menu placement vary a little by Android Auto version and
 
 The Desktop Head Unit (DHU) emulates a standard Android Auto head unit on a laptop. It is useful for iterating on the Android Auto UI, media browsing, transport controls, and focus behaviour before using a car. It cannot reproduce every physical head unit or phone-vendor audio-routing behaviour, so real-car testing remains necessary.
 
+For DHU versions, platform-specific prerequisites, and the complete command reference, see the [official Android DHU guide](https://developer.android.com/training/cars/testing/dhu).
+
 ### Prerequisites
 
 - Android Studio with Android SDK Platform Tools.
