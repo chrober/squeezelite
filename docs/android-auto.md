@@ -24,9 +24,9 @@ These steps are for a person installing the signed APKs from the GitHub Actions 
 
 Android Auto labels and menu placement vary a little by Android Auto version and device manufacturer. Updating Android Auto from Google Play before testing is recommended.
 
-## Develop with the Desktop Head Unit
+## Test with the Desktop Head Unit
 
-The Desktop Head Unit (DHU) emulates a standard Android Auto head unit on a laptop. It is useful for iterating on the Android Auto UI, media browsing, transport controls, and focus behaviour before using a car. It cannot reproduce every physical head unit or phone-vendor audio-routing behaviour, so real-car testing remains necessary.
+The Desktop Head Unit (DHU) emulates a standard Android Auto head unit on a laptop. It is useful for testing the Android Auto UI, media browsing, transport controls, and focus behaviour before using a car. You can use the signed fork APKs from GitHub Actions; building either app is not required. DHU cannot reproduce every physical head unit or phone-vendor audio-routing behaviour, so real-car testing remains necessary.
 
 For DHU versions, platform-specific prerequisites, and the complete command reference, see the [official Android DHU guide](https://developer.android.com/training/cars/testing/dhu).
 
@@ -37,38 +37,11 @@ For DHU versions, platform-specific prerequisites, and the complete command refe
 - A current Android Auto installation on the test phone.
 - Android system developer options and **USB debugging** enabled on the phone.
 - Android Auto developer mode enabled, as described in the previous section.
+- In Android Auto's **Developer settings**, select **Start head unit server** (also called the infotainment server on some versions). DHU cannot connect until it is running; Android Auto shows a foreground notification while it is active.
 
-For local Squeezelite builds, install the native build dependencies listed in the [Squeezelite README](../README.md). The Android project currently uses Android SDK Platform 35, Build Tools 35.0.0, and NDK r27.2.12479018.
+### Run DHU with the signed test APKs
 
-### Build and install both apps
-
-Use branches that contain the Android Auto code. The fork APK build overlay lives on `build/android-auto-apk`; it also changes the application IDs and names so the test apps can be installed alongside upstream releases.
-
-```powershell
-# From the squeezelite checkout
-git switch build/android-auto-apk
-Set-Location android
-.\gradlew.bat assembleDebug
-adb install -r app\build\outputs\apk\debug\app-debug.apk
-
-# From the lms-material-app checkout
-git switch build/android-auto-apk
-.\gradlew.bat :lms-material:assembleDebug
-adb install -r lms-material\build\outputs\apk\debug\lms-material-debug.apk
-```
-
-If an Actions-built fork APK is already installed, Android will reject the debug APK because it uses a different signing key. Uninstall only the two fork packages first; this does not remove the upstream apps:
-
-```powershell
-adb uninstall org.lyrion.squeezelite.chrober
-adb uninstall com.craigd.lmsmaterial.app.chrober
-```
-
-Start both phone apps once, connect each to LMS, and select **Squeezelite (chrober)** in **Settings** > **Local player** > **Player app** before starting the DHU.
-
-### Connect the DHU through ADB tunnelling
-
-ADB tunnelling is the most convenient starting point on Windows because DHU USB accessory mode may need a WinUSB driver and can interfere with the normal ADB connection.
+Install and prepare both fork APKs as described in steps 1-3 of [Test an APK in a Car](#test-an-apk-in-a-car). Then connect the phone to DHU:
 
 1. Connect and unlock the phone, then verify that ADB sees it:
 
@@ -76,7 +49,7 @@ ADB tunnelling is the most convenient starting point on Windows because DHU USB 
    adb devices
    ```
 
-2. In Android Auto's **Developer settings**, choose **Start head unit server**. Also confirm that **Previously connected cars** has **Add new cars to Android Auto** enabled.
+2. In Android Auto's **Developer settings**, select **Start head unit server** if it is not already running. Also confirm that **Previously connected cars** has **Add new cars to Android Auto** enabled.
 
 3. Forward the DHU port and launch the emulator:
 
@@ -101,6 +74,34 @@ keycode media_previous
 ```
 
 `focus audio off` simulates the head unit using another audio source; `focus audio on` restores Android Auto audio focus. These are particularly useful when checking focus-loss and recovery behaviour.
+
+### Build apps locally (only when changing code)
+
+For local Squeezelite builds, install the native build dependencies listed in the [Squeezelite README](../README.md). The Android project currently uses Android SDK Platform 35, Build Tools 35.0.0, and NDK r27.2.12479018.
+
+Use branches that contain the Android Auto code. The fork APK build overlay lives on `build/android-auto-apk`; it also changes the application IDs and names so the test apps can be installed alongside upstream releases.
+
+```powershell
+# From the squeezelite checkout
+git switch build/android-auto-apk
+Set-Location android
+.\gradlew.bat assembleDebug
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+
+# From the lms-material-app checkout
+git switch build/android-auto-apk
+.\gradlew.bat :lms-material:assembleDebug
+adb install -r lms-material\build\outputs\apk\debug\lms-material-debug.apk
+```
+
+If an Actions-built fork APK is already installed, Android will reject the debug APK because it uses a different signing key. Uninstall only the two fork packages first; this does not remove the upstream apps:
+
+```powershell
+adb uninstall org.lyrion.squeezelite.chrober
+adb uninstall com.craigd.lmsmaterial.app.chrober
+```
+
+Start both phone apps once, connect each to LMS, and select **Squeezelite (chrober)** in **Settings** > **Local player** > **Player app** before following the DHU steps above.
 
 ### USB accessory mode alternative
 
