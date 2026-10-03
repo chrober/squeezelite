@@ -38,6 +38,7 @@
     <string name="start_on_boot_delay">Delay when starting on boot</string>
     <string name="max_bitrate_when">Apply bit rate limit</string>
     <string name="bt">Bluetooth</string>
+    <string name="android_auto">Android Auto</string>
     <string name="autostart_bt">Start player on connect</string>
     <string name="autostart_bt_summary">When one of the configured BT devices connects then start player using its ID and name. Player will also stop when device disconnects.</string>
     <string name="autostop_bt">Stop player on disconnect</string>
