@@ -47,9 +47,11 @@ import android.view.KeyEvent;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.car.app.connection.CarConnection;
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.lifecycle.Observer;
 import androidx.core.app.ServiceCompat;
 import androidx.media.MediaBrowserServiceCompat;
 import androidx.media.session.MediaButtonReceiver;
@@ -88,6 +90,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
     private boolean hasAudioFocus = false;
+    private CarConnection carConnection;
+    private final ProjectionConnectionMonitor projectionConnectionMonitor = new ProjectionConnectionMonitor();
+    private final Observer<Integer> carConnectionObserver = this::androidAutoConnectionChanged;
     private final AudioManager.OnAudioFocusChangeListener audioFocusListener =
             focusChange -> Utils.debug("Audio focus:" + focusChange);
 
@@ -112,6 +117,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public void onDestroy() {
         super.onDestroy();
         Utils.debug("");
+        if (carConnection != null) {
+            carConnection.getType().removeObserver(carConnectionObserver);
+            carConnection = null;
+        }
         stopForegroundService();
     }
 
@@ -186,7 +195,20 @@ public class PlayerService extends MediaBrowserServiceCompat {
             notificationBuilder = new NotificationCompat.Builder(this);
         }
         createNotification();
+        carConnection = new CarConnection(this);
+        carConnection.getType().observeForever(carConnectionObserver);
         startPlayer();
+    }
+
+    private void androidAutoConnectionChanged(int type) {
+        if (projectionConnectionMonitor.connectionChanged(type) &&
+                Prefs.get(this).getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY,
+                        Prefs.DEFAULT_PAUSE_ON_ANDROID_AUTO_DISCONNECT)) {
+            Utils.debug("Android Auto disconnected - pausing playback");
+            if (lib != null) {
+                lib.pause();
+            }
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
