@@ -101,12 +101,6 @@
             app:singleLineTitle="false"/>
         <SwitchPreferenceCompat
             app:iconSpaceReserved="false"
-            app:key="pause_on_android_auto_disconnect"
-            app:summary="@string/pause_on_android_auto_disconnect_summary"
-            app:title="@string/pause_on_android_auto_disconnect"
-            app:singleLineTitle="false"/>
-        <SwitchPreferenceCompat
-            app:iconSpaceReserved="false"
             app:key="use_wake_lock"
             app:summary="@string/use_wake_lock_summary"
             app:title="@string/use_wake_lock"
@@ -175,6 +169,17 @@
             app:key="autostop_bt"
             app:summary="@string/autostop_bt_summary"
             app:title="@string/autostop_bt"
+            app:singleLineTitle="false"/>
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/android_auto">
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:key="pause_on_android_auto_disconnect"
+            app:summary="@string/pause_on_android_auto_disconnect_summary"
+            app:title="@string/pause_on_android_auto_disconnect"
             app:singleLineTitle="false"/>
     </PreferenceCategory>
 
