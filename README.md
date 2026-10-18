@@ -9,6 +9,10 @@ Features:
 4. Support for Bluetooth media controls
 5. Confgurable bit rate limiting
 
+## Fork Android Auto test builds
+
+The `chrober` fork's `build/android-auto-apk` branch adds a fork-only APK workflow and application ID so that it can be installed alongside the upstream app. It also contains the opt-in Android Auto disconnect-pause setting. The local development and APK-testing guide is in [docs/android-auto.md](docs/android-auto.md). These fork-only changes are not part of the upstream project or its pull requests.
+
 <br>
 
 [<img src="https://shields.rbtlog.dev/simple/org.lyrion.squeezelite" alt="RB Status">](https://shields.rbtlog.dev/org.lyrion.squeezelite)
