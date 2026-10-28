@@ -27,14 +27,12 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.util.Log;
 
 /**
  * Watches whether Android Auto is projecting, via its content provider. The end of a session is
  * not reliably visible as a Bluetooth disconnection.
  */
 public class CarConnection {
-    private static final String DIAGNOSTIC_TAG = "SqueezeliteAA";
     // See androidx.car.app.connection.CarConnection
     private static final Uri URI = Uri.parse("content://androidx.car.app.connection");
     private static final String STATE = "CarConnectionState";
@@ -84,7 +82,6 @@ public class CarConnection {
         if (!seenConnected) {
             seenConnected = true;
             connectedSince = SystemClock.elapsedRealtime();
-            Log.i(DIAGNOSTIC_TAG, "car session detected");
             if (null!=onSessionStarted) {
                 onSessionStarted.run();
             }
@@ -160,7 +157,6 @@ public class CarConnection {
             return;
         }
         if (confirming) {
-            Log.i(DIAGNOSTIC_TAG, "car session ended");
             Utils.info("Android Auto session ended");
             seenConnected = false;
             connectedSince = 0;
