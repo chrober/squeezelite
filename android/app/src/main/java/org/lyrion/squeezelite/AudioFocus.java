@@ -48,7 +48,6 @@ public class AudioFocus {
     private boolean haveFocus = false;
     private boolean pausedByLoss = false;
     private boolean lostFocusDuringCarSession = false;
-    private boolean reclaimed = false;
 
     private final AudioManager.OnAudioFocusChangeListener listener = this::onFocusChange;
     private final Runnable reclaimTask = this::reclaim;
@@ -99,9 +98,6 @@ public class AudioFocus {
     }
 
     private boolean mayBeCarStarting() {
-        if (reclaimed) {
-            return false;
-        }
         if (null==carConnection) {
             return true;
         }
@@ -133,7 +129,6 @@ public class AudioFocus {
             carConnection.markConnected();
         }
         Utils.debug("Focus lost as car connected (" + state + ") - reclaim");
-        reclaimed = true;
         acquire();
         if (haveFocus) {
             lib.play();
@@ -158,10 +153,6 @@ public class AudioFocus {
         if (haveFocus) {
             lib.play();
         }
-    }
-
-    public void carSessionEnded() {
-        reclaimed = false;
     }
 
     private void acquire() {
