@@ -39,6 +39,8 @@ public class CarConnection {
     public static final int NOT_CONNECTED = 0;
     // Verify a zero state once, without visibly delaying local playback after disconnect.
     private static final long CONFIRM_DELAY = 500;
+    private static final long ACTIVE_POLL_INTERVAL = 1000;
+    private static final long IDLE_POLL_INTERVAL = 30000;
 
     private final Context context;
     private final Runnable onSessionEnded;
@@ -174,7 +176,7 @@ public class CarConnection {
 
     private void schedulePoll() {
         handler.removeCallbacks(pollTask);
-        handler.postDelayed(pollTask, CarConnectionPolling.interval(seenConnected, playing));
+        handler.postDelayed(pollTask, seenConnected || playing ? ACTIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL);
     }
 
     private void confirm() {
