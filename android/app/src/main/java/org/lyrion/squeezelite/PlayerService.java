@@ -282,16 +282,18 @@ public class PlayerService extends MediaBrowserServiceCompat {
             updateNotification();
         }
         SharedPreferences prefs = Prefs.get(this);
+        boolean pauseOnAndroidAutoSessionChange = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false);
         AndroidAutoSessionAction androidAutoSessionAction = AndroidAutoSessionAction.forSettings(
                 prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
-                prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
+                pauseOnAndroidAutoSessionChange);
         boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
         if (useAudioFocus || AndroidAutoSessionAction.RESUME!=androidAutoSessionAction) {
             carConnection = new CarConnection(this,
                     () -> handleAndroidAutoSessionEnd(androidAutoSessionAction));
         }
         if (useAudioFocus) {
-            audioFocus = new AudioFocus(this, lib, carConnection);
+            audioFocus = new AudioFocus(this, lib, carConnection,
+                    AndroidAutoSessionAction.resumeOnConnection(pauseOnAndroidAutoSessionChange));
         }
         if (null!=carConnection) {
             carConnection.start();

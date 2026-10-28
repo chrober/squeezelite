@@ -42,6 +42,7 @@ public class AudioFocus {
     private final AudioManager audioManager;
     private final Library lib;
     private final CarConnection carConnection;
+    private final boolean resumeOnCarConnection;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private AudioFocusRequest request = null;
     private boolean haveFocus = false;
@@ -52,11 +53,12 @@ public class AudioFocus {
     private final AudioManager.OnAudioFocusChangeListener listener = this::onFocusChange;
     private final Runnable reclaimTask = this::reclaim;
 
-    public AudioFocus(Context context, Library lib, CarConnection carConnection) {
+    public AudioFocus(Context context, Library lib, CarConnection carConnection, boolean resumeOnCarConnection) {
         this.context = context.getApplicationContext();
         this.audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         this.lib = lib;
         this.carConnection = carConnection;
+        this.resumeOnCarConnection = resumeOnCarConnection;
     }
 
     private void onFocusChange(int focusChange) {
@@ -76,7 +78,7 @@ public class AudioFocus {
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
                 lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
-                pausedByLoss = mayBeCarStarting();
+                pausedByLoss = resumeOnCarConnection && mayBeCarStarting();
                 if (pausedByLoss) {
                     handler.postDelayed(reclaimTask, RECLAIM_DELAY);
                 } else {

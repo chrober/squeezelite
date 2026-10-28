@@ -24,10 +24,14 @@ enum AndroidAutoSessionAction {
     RESUME,
     STOP;
 
-    static AndroidAutoSessionAction forSettings(boolean autostart, boolean pauseOnDisconnect) {
+    static AndroidAutoSessionAction forSettings(boolean autostart, boolean pauseOnSessionChange) {
         if (autostart) {
             return STOP;
         }
-        return pauseOnDisconnect ? PAUSE : RESUME;
+        return pauseOnSessionChange ? PAUSE : RESUME;
+    }
+
+    static boolean resumeOnConnection(boolean pauseOnSessionChange) {
+        return !pauseOnSessionChange;
     }
 }
