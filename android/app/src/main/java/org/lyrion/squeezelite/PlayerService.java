@@ -446,6 +446,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public void playbackStateChanged(boolean playing) {
         Utils.debug("playing:"+playing);
         handler.post(() -> {
+            CarConnection connection = carConnection;
+            if (null!=connection) {
+                connection.playbackStateChanged(playing);
+            }
             AudioFocus focus = audioFocus;
             if (null!=focus) {
                 // An exception here would kill the main thread, and every later update with it

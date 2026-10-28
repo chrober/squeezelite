@@ -27,7 +27,7 @@ final class CarConnectionPolling {
     private CarConnectionPolling() {
     }
 
-    static long interval(boolean connected) {
-        return connected ? ACTIVE_INTERVAL : IDLE_INTERVAL;
+    static long interval(boolean connected, boolean playing) {
+        return connected || playing ? ACTIVE_INTERVAL : IDLE_INTERVAL;
     }
 }

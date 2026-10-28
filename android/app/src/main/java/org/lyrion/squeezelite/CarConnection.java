@@ -46,6 +46,7 @@ public class CarConnection {
     private final Runnable pollTask = this::poll;
     private ContentObserver observer = null;
     private boolean seenConnected = false;
+    private boolean playing = false;
     // 0 if no session is running
     private long connectedSince = 0;
 
@@ -78,6 +79,13 @@ public class CarConnection {
         }
         handler.removeCallbacks(confirmTask);
         schedulePoll();
+    }
+
+    public void playbackStateChanged(boolean playing) {
+        this.playing = playing;
+        if (null!=observer) {
+            schedulePoll();
+        }
     }
 
     public CarConnection(Context context, Runnable onSessionEnded) {
@@ -157,7 +165,7 @@ public class CarConnection {
 
     private void schedulePoll() {
         handler.removeCallbacks(pollTask);
-        handler.postDelayed(pollTask, CarConnectionPolling.interval(seenConnected));
+        handler.postDelayed(pollTask, CarConnectionPolling.interval(seenConnected, playing));
     }
 
     private void confirm() {
