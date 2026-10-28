@@ -37,7 +37,8 @@ public class CarConnection {
     private static final Uri URI = Uri.parse("content://androidx.car.app.connection");
     private static final String STATE = "CarConnectionState";
     public static final int NOT_CONNECTED = 0;
-    private static final long CONFIRM_DELAY = 3000;
+    // Verify a zero state once, without visibly delaying local playback after disconnect.
+    private static final long CONFIRM_DELAY = 500;
 
     private final Context context;
     private final Runnable onSessionEnded;
