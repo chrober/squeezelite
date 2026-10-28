@@ -33,6 +33,14 @@ public class AndroidAutoSessionActionTest {
     }
 
     @Test
+    public void waitsBrieflyForAnAutoConnectionAfterFocusLoss() {
+        assertTrue(AndroidAutoSessionAction.retriesFocusRecovery(true, 0, 100, 200));
+        assertFalse(AndroidAutoSessionAction.retriesFocusRecovery(true, 2, 100, 200));
+        assertFalse(AndroidAutoSessionAction.retriesFocusRecovery(true, 0, 200, 200));
+        assertFalse(AndroidAutoSessionAction.retriesFocusRecovery(false, 0, 100, 200));
+    }
+
+    @Test
     public void stopsWhenAndroidAutoAutostartIsEnabled() {
         assertEquals(AndroidAutoSessionAction.STOP,
                 AndroidAutoSessionAction.forSettings(true, false));

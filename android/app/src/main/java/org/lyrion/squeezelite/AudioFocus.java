@@ -35,6 +35,8 @@ import android.os.SystemClock;
  */
 public class AudioFocus {
     private static final long RECLAIM_DELAY = 1500;
+    private static final long RECLAIM_RETRY_DELAY = 500;
+    private static final long RECLAIM_TIMEOUT = 10000;
     // A loss later than this into a car session is another app
     private static final long STARTUP_WINDOW = 60000;
 
@@ -48,6 +50,7 @@ public class AudioFocus {
     private boolean haveFocus = false;
     private boolean pausedByLoss = false;
     private boolean lostFocusDuringCarSession = false;
+    private long reclaimDeadline = 0;
 
     private final AudioManager.OnAudioFocusChangeListener listener = this::onFocusChange;
     private final Runnable reclaimTask = this::reclaim;
@@ -70,6 +73,7 @@ public class AudioFocus {
                 haveFocus = true;
                 handler.removeCallbacks(reclaimTask);
                 lostFocusDuringCarSession = false;
+                reclaimDeadline = 0;
                 if (pausedByLoss) {
                     pausedByLoss = false;
                     lib.play();
@@ -82,7 +86,7 @@ public class AudioFocus {
                 lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
                 pausedByLoss = resumeOnCarConnection && mayBeCarStarting();
                 if (pausedByLoss) {
-                    handler.postDelayed(reclaimTask, RECLAIM_DELAY);
+                    scheduleReclaim(RECLAIM_DELAY);
                 } else {
                     Utils.debug("Another player has taken over");
                 }
@@ -111,9 +115,16 @@ public class AudioFocus {
 
     private void onCarConnectionStarted() {
         if (AndroidAutoSessionAction.reclaimOnSessionStart(resumeOnCarConnection, pausedByLoss)) {
-            handler.removeCallbacks(reclaimTask);
-            handler.postDelayed(reclaimTask, RECLAIM_DELAY);
+            scheduleReclaim(RECLAIM_DELAY);
         }
+    }
+
+    private void scheduleReclaim(long delay) {
+        if (0==reclaimDeadline) {
+            reclaimDeadline = SystemClock.elapsedRealtime()+RECLAIM_TIMEOUT;
+        }
+        handler.removeCallbacks(reclaimTask);
+        handler.postDelayed(reclaimTask, delay);
     }
 
     private void reclaim() {
@@ -130,11 +141,19 @@ public class AudioFocus {
         if (!pausedByLoss) {
             return;
         }
-        pausedByLoss = false;
         if (CarConnection.NOT_CONNECTED == state) {
+            long now = SystemClock.elapsedRealtime();
+            if (AndroidAutoSessionAction.retriesFocusRecovery(pausedByLoss, state, now, reclaimDeadline)) {
+                handler.postDelayed(reclaimTask, Math.min(RECLAIM_RETRY_DELAY, reclaimDeadline-now));
+                return;
+            }
+            pausedByLoss = false;
+            reclaimDeadline = 0;
             Utils.debug("Focus lost to another app");
             return;
         }
+        pausedByLoss = false;
+        reclaimDeadline = 0;
         if (null!=carConnection) {
             carConnection.markConnected();
         }
@@ -148,6 +167,7 @@ public class AudioFocus {
     public void request() {
         pausedByLoss = false;
         lostFocusDuringCarSession = false;
+        reclaimDeadline = 0;
         handler.removeCallbacks(reclaimTask);
         acquire();
     }
@@ -158,6 +178,7 @@ public class AudioFocus {
         }
         lostFocusDuringCarSession = false;
         pausedByLoss = false;
+        reclaimDeadline = 0;
         handler.removeCallbacks(reclaimTask);
         acquire();
         if (haveFocus) {
@@ -205,6 +226,7 @@ public class AudioFocus {
     public void release() {
         pausedByLoss = false;
         lostFocusDuringCarSession = false;
+        reclaimDeadline = 0;
         handler.removeCallbacks(reclaimTask);
         releaseFocus();
     }

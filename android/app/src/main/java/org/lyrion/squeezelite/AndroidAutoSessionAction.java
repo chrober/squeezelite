@@ -38,4 +38,9 @@ enum AndroidAutoSessionAction {
     static boolean reclaimOnSessionStart(boolean resumeOnConnection, boolean pausedByFocusLoss) {
         return resumeOnConnection && pausedByFocusLoss;
     }
+
+    static boolean retriesFocusRecovery(boolean pausedByFocusLoss, int carConnectionState,
+                                        long now, long deadline) {
+        return pausedByFocusLoss && CarConnection.NOT_CONNECTED==carConnectionState && now<deadline;
+    }
 }
