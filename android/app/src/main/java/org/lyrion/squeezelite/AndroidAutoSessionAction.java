@@ -34,4 +34,8 @@ enum AndroidAutoSessionAction {
     static boolean resumeOnConnection(boolean pauseOnSessionChange) {
         return !pauseOnSessionChange;
     }
+
+    static boolean reclaimOnSessionStart(boolean resumeOnConnection, boolean pausedByFocusLoss) {
+        return resumeOnConnection && pausedByFocusLoss;
+    }
 }

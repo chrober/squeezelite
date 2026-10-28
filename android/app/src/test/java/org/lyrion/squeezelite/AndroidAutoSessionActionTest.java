@@ -26,6 +26,13 @@ public class AndroidAutoSessionActionTest {
     }
 
     @Test
+    public void onlyReclaimsFocusForAnAutoSessionWhenPlaybackWasPausedByFocusLoss() {
+        assertTrue(AndroidAutoSessionAction.reclaimOnSessionStart(true, true));
+        assertFalse(AndroidAutoSessionAction.reclaimOnSessionStart(true, false));
+        assertFalse(AndroidAutoSessionAction.reclaimOnSessionStart(false, true));
+    }
+
+    @Test
     public void stopsWhenAndroidAutoAutostartIsEnabled() {
         assertEquals(AndroidAutoSessionAction.STOP,
                 AndroidAutoSessionAction.forSettings(true, false));

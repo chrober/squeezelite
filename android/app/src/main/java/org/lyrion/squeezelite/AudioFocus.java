@@ -58,6 +58,9 @@ public class AudioFocus {
         this.lib = lib;
         this.carConnection = carConnection;
         this.resumeOnCarConnection = resumeOnCarConnection;
+        if (null!=carConnection) {
+            carConnection.setOnSessionStarted(this::onCarConnectionStarted);
+        }
     }
 
     private void onFocusChange(int focusChange) {
@@ -104,6 +107,13 @@ public class AudioFocus {
         long since = carConnection.connectedSince();
         // 0 is a session not seen yet, i.e. only now starting
         return 0==since || (SystemClock.elapsedRealtime()-since)<STARTUP_WINDOW;
+    }
+
+    private void onCarConnectionStarted() {
+        if (AndroidAutoSessionAction.reclaimOnSessionStart(resumeOnCarConnection, pausedByLoss)) {
+            handler.removeCallbacks(reclaimTask);
+            handler.postDelayed(reclaimTask, RECLAIM_DELAY);
+        }
     }
 
     private void reclaim() {

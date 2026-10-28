@@ -46,6 +46,7 @@ public class CarConnection {
     private final Runnable confirmTask = this::confirm;
     private final Runnable pollTask = this::poll;
     private ContentObserver observer = null;
+    private Runnable onSessionStarted = null;
     private boolean seenConnected = false;
     private boolean playing = false;
     // 0 if no session is running
@@ -70,6 +71,10 @@ public class CarConnection {
         return connectedSince;
     }
 
+    public void setOnSessionStarted(Runnable onSessionStarted) {
+        this.onSessionStarted = onSessionStarted;
+    }
+
     void markConnected() {
         if (null==observer) {
             return;
@@ -77,6 +82,9 @@ public class CarConnection {
         if (!seenConnected) {
             seenConnected = true;
             connectedSince = SystemClock.elapsedRealtime();
+            if (null!=onSessionStarted) {
+                onSessionStarted.run();
+            }
         }
         handler.removeCallbacks(confirmTask);
         schedulePoll();
