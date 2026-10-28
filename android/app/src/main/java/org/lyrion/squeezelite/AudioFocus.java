@@ -28,12 +28,14 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 
 /**
  * Holds audio focus whilst playing, as Android Auto only routes the media of the focus holder to
  * the car. Android Auto also takes focus for itself as a session starts, which is reclaimed.
  */
 public class AudioFocus {
+    private static final String DIAGNOSTIC_TAG = "SqueezeliteAA";
     private static final long RECLAIM_DELAY = 1500;
     private static final long RECLAIM_RETRY_DELAY = 500;
     private static final long RECLAIM_TIMEOUT = 10000;
@@ -55,6 +57,10 @@ public class AudioFocus {
     private final AudioManager.OnAudioFocusChangeListener listener = this::onFocusChange;
     private final Runnable reclaimTask = this::reclaim;
 
+    private void trace(String message) {
+        Log.i(DIAGNOSTIC_TAG, message);
+    }
+
     public AudioFocus(Context context, Library lib, CarConnection carConnection, boolean resumeOnCarConnection) {
         this.context = context.getApplicationContext();
         this.audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
@@ -67,6 +73,8 @@ public class AudioFocus {
     }
 
     private void onFocusChange(int focusChange) {
+        trace("focus change=" + focusChange + ", haveFocus=" + haveFocus + ", pausedByLoss=" + pausedByLoss
+                + ", connectedSince=" + (null==carConnection ? 0 : carConnection.connectedSince()));
         Utils.debug("focusChange:" + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
@@ -85,6 +93,7 @@ public class AudioFocus {
                 handler.removeCallbacks(reclaimTask);
                 lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
                 pausedByLoss = resumeOnCarConnection && mayBeCarStarting();
+                trace("permanent loss: resumeOnConnection=" + resumeOnCarConnection + ", reclaim=" + pausedByLoss);
                 if (pausedByLoss) {
                     scheduleReclaim(RECLAIM_DELAY);
                 } else {
@@ -94,6 +103,7 @@ public class AudioFocus {
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 // e.g. phone call, or navigation prompt
                 pausedByLoss = true;
+                trace("transient loss: waiting for focus gain or car session start");
                 lib.pause();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
@@ -114,7 +124,9 @@ public class AudioFocus {
     }
 
     private void onCarConnectionStarted() {
-        if (AndroidAutoSessionAction.reclaimOnSessionStart(resumeOnCarConnection, pausedByLoss)) {
+        boolean reclaim = AndroidAutoSessionAction.reclaimOnSessionStart(resumeOnCarConnection, pausedByLoss);
+        trace("car session started: pausedByLoss=" + pausedByLoss + ", reclaim=" + reclaim);
+        if (reclaim) {
             scheduleReclaim(RECLAIM_DELAY);
         }
     }
@@ -129,26 +141,33 @@ public class AudioFocus {
 
     private void reclaim() {
         if (!pausedByLoss) {
+            trace("reclaim skipped: no pending focus loss");
             return;
         }
         new Thread(() -> {
             int state = CarConnection.state(context);
-            handler.post(() -> onCarConnectionState(state));
+            handler.post(() -> {
+                trace("reclaim provider state=" + state);
+                onCarConnectionState(state);
+            });
         }).start();
     }
 
     private void onCarConnectionState(int state) {
         if (!pausedByLoss) {
+            trace("reclaim ignored: pending focus loss cleared");
             return;
         }
         if (CarConnection.NOT_CONNECTED == state) {
             long now = SystemClock.elapsedRealtime();
             if (AndroidAutoSessionAction.retriesFocusRecovery(pausedByLoss, state, now, reclaimDeadline)) {
+                trace("car connection not ready: retrying");
                 handler.postDelayed(reclaimTask, Math.min(RECLAIM_RETRY_DELAY, reclaimDeadline-now));
                 return;
             }
             pausedByLoss = false;
             reclaimDeadline = 0;
+            trace("reclaim timed out: no car session");
             Utils.debug("Focus lost to another app");
             return;
         }
@@ -158,8 +177,10 @@ public class AudioFocus {
             carConnection.markConnected();
         }
         Utils.debug("Focus lost as car connected (" + state + ") - reclaim");
+        trace("reclaiming focus for car session");
         acquire();
         if (haveFocus) {
+            trace("focus reclaimed: sending play");
             lib.play();
         }
     }
@@ -190,6 +211,7 @@ public class AudioFocus {
         if (haveFocus || null==audioManager) {
             return;
         }
+        trace("requesting focus");
         int result;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (null==request) {
@@ -208,6 +230,7 @@ public class AudioFocus {
             result = audioManager.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
         }
         haveFocus = AudioManager.AUDIOFOCUS_REQUEST_GRANTED==result;
+        trace("focus request result=" + result + ", granted=" + haveFocus);
         if (haveFocus) {
             Utils.debug("Audio focus granted");
         } else {
