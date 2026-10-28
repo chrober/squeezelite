@@ -46,6 +46,7 @@ public class AudioFocus {
     private AudioFocusRequest request = null;
     private boolean haveFocus = false;
     private boolean pausedByLoss = false;
+    private boolean lostFocusDuringCarSession = false;
     private boolean reclaimed = false;
 
     private final AudioManager.OnAudioFocusChangeListener listener = this::onFocusChange;
@@ -64,6 +65,7 @@ public class AudioFocus {
             case AudioManager.AUDIOFOCUS_GAIN:
                 haveFocus = true;
                 handler.removeCallbacks(reclaimTask);
+                lostFocusDuringCarSession = false;
                 if (pausedByLoss) {
                     pausedByLoss = false;
                     lib.play();
@@ -73,6 +75,7 @@ public class AudioFocus {
                 haveFocus = false;
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
+                lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
                 pausedByLoss = mayBeCarStarting();
                 if (pausedByLoss) {
                     handler.postDelayed(reclaimTask, RECLAIM_DELAY);
@@ -134,8 +137,22 @@ public class AudioFocus {
 
     public void request() {
         pausedByLoss = false;
+        lostFocusDuringCarSession = false;
         handler.removeCallbacks(reclaimTask);
         acquire();
+    }
+
+    public void resumeAfterCarDisconnect() {
+        if (!lostFocusDuringCarSession) {
+            return;
+        }
+        lostFocusDuringCarSession = false;
+        pausedByLoss = false;
+        handler.removeCallbacks(reclaimTask);
+        acquire();
+        if (haveFocus) {
+            lib.play();
+        }
     }
 
     private void acquire() {
@@ -177,6 +194,7 @@ public class AudioFocus {
 
     public void release() {
         pausedByLoss = false;
+        lostFocusDuringCarSession = false;
         handler.removeCallbacks(reclaimTask);
         releaseFocus();
     }

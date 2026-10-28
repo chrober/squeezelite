@@ -281,12 +281,20 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (!Utils.isEmpty(playerName)) {
             updateNotification();
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false)) {
-            carConnection = new CarConnection(this, this::stopForegroundService);
-            carConnection.start();
+        SharedPreferences prefs = Prefs.get(this);
+        AndroidAutoSessionAction androidAutoSessionAction = AndroidAutoSessionAction.forSettings(
+                prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
+                prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
+        boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
+        if (useAudioFocus || AndroidAutoSessionAction.RESUME!=androidAutoSessionAction) {
+            carConnection = new CarConnection(this,
+                    () -> handleAndroidAutoSessionEnd(androidAutoSessionAction));
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS)) {
+        if (useAudioFocus) {
             audioFocus = new AudioFocus(this, lib, carConnection);
+        }
+        if (null!=carConnection) {
+            carConnection.start();
         }
 
         mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
@@ -381,6 +389,28 @@ public class PlayerService extends MediaBrowserServiceCompat {
             mediaSession.setActive(true);
             nowPlaying = new NowPlaying(this, lib, mediaSession);
             nowPlaying.update();
+        }
+    }
+
+    private void pausePlayback() {
+        if (null!=lib) {
+            lib.pause();
+        }
+    }
+
+    private void handleAndroidAutoSessionEnd(AndroidAutoSessionAction action) {
+        switch (action) {
+            case STOP:
+                stopForegroundService();
+                break;
+            case PAUSE:
+                pausePlayback();
+                break;
+            case RESUME:
+                if (null!=audioFocus) {
+                    audioFocus.resumeAfterCarDisconnect();
+                }
+                break;
         }
     }
 

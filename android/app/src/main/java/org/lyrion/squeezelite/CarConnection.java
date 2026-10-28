@@ -142,7 +142,7 @@ public class CarConnection {
             try {
                 onSessionEnded.run();
             } catch (Exception e) {
-                Utils.error("Failed to stop player", e);
+                Utils.error("Failed to handle Android Auto session end", e);
             }
             return;
         }
