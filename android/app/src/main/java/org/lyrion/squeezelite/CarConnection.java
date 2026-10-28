@@ -38,8 +38,6 @@ public class CarConnection {
     private static final String STATE = "CarConnectionState";
     public static final int NOT_CONNECTED = 0;
     private static final long CONFIRM_DELAY = 3000;
-    // In case the provider does not notify a change
-    private static final long POLL_INTERVAL = 30000;
 
     private final Context context;
     private final Runnable onSessionEnded;
@@ -152,7 +150,7 @@ public class CarConnection {
 
     private void schedulePoll() {
         handler.removeCallbacks(pollTask);
-        handler.postDelayed(pollTask, POLL_INTERVAL);
+        handler.postDelayed(pollTask, CarConnectionPolling.interval(seenConnected));
     }
 
     private void confirm() {
