@@ -127,6 +127,9 @@ public class AudioFocus {
             Utils.debug("Focus lost to another app");
             return;
         }
+        if (null!=carConnection) {
+            carConnection.markConnected();
+        }
         Utils.debug("Focus lost as car connected (" + state + ") - reclaim");
         reclaimed = true;
         acquire();

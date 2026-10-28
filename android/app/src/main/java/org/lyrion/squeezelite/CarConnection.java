@@ -68,6 +68,18 @@ public class CarConnection {
         return connectedSince;
     }
 
+    void markConnected() {
+        if (null==observer) {
+            return;
+        }
+        if (!seenConnected) {
+            seenConnected = true;
+            connectedSince = SystemClock.elapsedRealtime();
+        }
+        handler.removeCallbacks(confirmTask);
+        schedulePoll();
+    }
+
     public CarConnection(Context context, Runnable onSessionEnded) {
         this.context = context.getApplicationContext();
         this.onSessionEnded = onSessionEnded;
@@ -120,12 +132,7 @@ public class CarConnection {
         }
         Utils.debug("state:"+state+", seenConnected:"+seenConnected+", confirming:"+confirming);
         if (NOT_CONNECTED!=state) {
-            if (!seenConnected) {
-                seenConnected = true;
-                connectedSince = SystemClock.elapsedRealtime();
-            }
-            handler.removeCallbacks(confirmTask);
-            schedulePoll();
+            markConnected();
             return;
         }
         if (!seenConnected) {
