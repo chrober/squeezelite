@@ -293,7 +293,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
         if (useAudioFocus) {
             audioFocus = new AudioFocus(this, lib, carConnection,
-                    AndroidAutoSessionAction.resumeOnConnection(pauseOnAndroidAutoSessionChange));
+                    !pauseOnAndroidAutoSessionChange);
         }
         if (null!=carConnection) {
             carConnection.start();

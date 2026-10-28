@@ -3,8 +3,6 @@ package org.lyrion.squeezelite;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 public class AndroidAutoSessionActionTest {
     @Test
@@ -17,27 +15,6 @@ public class AndroidAutoSessionActionTest {
     public void pausesWhenPauseOnSessionChangeIsEnabled() {
         assertEquals(AndroidAutoSessionAction.PAUSE,
                 AndroidAutoSessionAction.forSettings(false, true));
-    }
-
-    @Test
-    public void resumesOnConnectionUnlessPauseOnSessionChangeIsEnabled() {
-        assertTrue(AndroidAutoSessionAction.resumeOnConnection(false));
-        assertFalse(AndroidAutoSessionAction.resumeOnConnection(true));
-    }
-
-    @Test
-    public void onlyReclaimsFocusForAnAutoSessionWhenPlaybackWasPausedByFocusLoss() {
-        assertTrue(AndroidAutoSessionAction.reclaimOnSessionStart(true, true));
-        assertFalse(AndroidAutoSessionAction.reclaimOnSessionStart(true, false));
-        assertFalse(AndroidAutoSessionAction.reclaimOnSessionStart(false, true));
-    }
-
-    @Test
-    public void waitsBrieflyForAnAutoConnectionAfterFocusLoss() {
-        assertTrue(AndroidAutoSessionAction.retriesFocusRecovery(true, 0, 100, 200));
-        assertFalse(AndroidAutoSessionAction.retriesFocusRecovery(true, 2, 100, 200));
-        assertFalse(AndroidAutoSessionAction.retriesFocusRecovery(true, 0, 200, 200));
-        assertFalse(AndroidAutoSessionAction.retriesFocusRecovery(false, 0, 100, 200));
     }
 
     @Test

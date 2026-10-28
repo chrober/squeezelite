@@ -114,7 +114,7 @@ public class AudioFocus {
     }
 
     private void onCarConnectionStarted() {
-        if (AndroidAutoSessionAction.reclaimOnSessionStart(resumeOnCarConnection, pausedByLoss)) {
+        if (resumeOnCarConnection && pausedByLoss) {
             scheduleReclaim(RECLAIM_DELAY);
         }
     }
@@ -143,7 +143,7 @@ public class AudioFocus {
         }
         if (CarConnection.NOT_CONNECTED == state) {
             long now = SystemClock.elapsedRealtime();
-            if (AndroidAutoSessionAction.retriesFocusRecovery(pausedByLoss, state, now, reclaimDeadline)) {
+            if (now<reclaimDeadline) {
                 handler.postDelayed(reclaimTask, Math.min(RECLAIM_RETRY_DELAY, reclaimDeadline-now));
                 return;
             }
