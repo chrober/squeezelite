@@ -158,6 +158,10 @@ public class AudioFocus {
         }
     }
 
+    public void carSessionEnded() {
+        reclaimed = false;
+    }
+
     private void acquire() {
         if (haveFocus || null==audioManager) {
             return;

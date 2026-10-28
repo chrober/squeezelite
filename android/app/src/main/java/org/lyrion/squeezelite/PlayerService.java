@@ -399,6 +399,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
     }
 
     private void handleAndroidAutoSessionEnd(AndroidAutoSessionAction action) {
+        if (null!=audioFocus) {
+            audioFocus.carSessionEnded();
+        }
         switch (action) {
             case STOP:
                 stopForegroundService();
