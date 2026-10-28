@@ -281,12 +281,22 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (!Utils.isEmpty(playerName)) {
             updateNotification();
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false)) {
-            carConnection = new CarConnection(this, this::stopForegroundService);
-            carConnection.start();
+        SharedPreferences prefs = Prefs.get(this);
+        boolean pauseOnAndroidAutoSessionChange = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false);
+        AndroidAutoSessionAction androidAutoSessionAction = AndroidAutoSessionAction.forSettings(
+                prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
+                pauseOnAndroidAutoSessionChange);
+        boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
+        if (useAudioFocus || AndroidAutoSessionAction.RESUME!=androidAutoSessionAction) {
+            carConnection = new CarConnection(this,
+                    () -> handleAndroidAutoSessionEnd(androidAutoSessionAction));
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS)) {
-            audioFocus = new AudioFocus(this, lib, carConnection);
+        if (useAudioFocus) {
+            audioFocus = new AudioFocus(this, lib, carConnection,
+                    !pauseOnAndroidAutoSessionChange);
+        }
+        if (null!=carConnection) {
+            carConnection.start();
         }
 
         mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
@@ -384,6 +394,28 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
+    private void pausePlayback() {
+        if (null!=lib) {
+            lib.pause();
+        }
+    }
+
+    private void handleAndroidAutoSessionEnd(AndroidAutoSessionAction action) {
+        switch (action) {
+            case STOP:
+                stopForegroundService();
+                break;
+            case PAUSE:
+                pausePlayback();
+                break;
+            case RESUME:
+                if (null!=audioFocus) {
+                    audioFocus.resumeAfterCarDisconnect();
+                }
+                break;
+        }
+    }
+
     private void stopPlayer() {
         if (null==lib) {
             return;
@@ -416,6 +448,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public void playbackStateChanged(boolean playing) {
         Utils.debug("playing:"+playing);
         handler.post(() -> {
+            CarConnection connection = carConnection;
+            if (null!=connection) {
+                connection.playbackStateChanged(playing);
+            }
             AudioFocus focus = audioFocus;
             if (null!=focus) {
                 // An exception here would kill the main thread, and every later update with it

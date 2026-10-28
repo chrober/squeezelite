@@ -37,9 +37,10 @@ public class CarConnection {
     private static final Uri URI = Uri.parse("content://androidx.car.app.connection");
     private static final String STATE = "CarConnectionState";
     public static final int NOT_CONNECTED = 0;
-    private static final long CONFIRM_DELAY = 3000;
-    // In case the provider does not notify a change
-    private static final long POLL_INTERVAL = 30000;
+    // Verify a zero state once, without visibly delaying local playback after disconnect.
+    private static final long CONFIRM_DELAY = 500;
+    private static final long ACTIVE_POLL_INTERVAL = 1000;
+    private static final long IDLE_POLL_INTERVAL = 30000;
 
     private final Context context;
     private final Runnable onSessionEnded;
@@ -47,7 +48,9 @@ public class CarConnection {
     private final Runnable confirmTask = this::confirm;
     private final Runnable pollTask = this::poll;
     private ContentObserver observer = null;
+    private Runnable onSessionStarted = null;
     private boolean seenConnected = false;
+    private boolean playing = false;
     // 0 if no session is running
     private long connectedSince = 0;
 
@@ -68,6 +71,32 @@ public class CarConnection {
 
     public long connectedSince() {
         return connectedSince;
+    }
+
+    public void setOnSessionStarted(Runnable onSessionStarted) {
+        this.onSessionStarted = onSessionStarted;
+    }
+
+    void markConnected() {
+        if (null==observer) {
+            return;
+        }
+        if (!seenConnected) {
+            seenConnected = true;
+            connectedSince = SystemClock.elapsedRealtime();
+            if (null!=onSessionStarted) {
+                onSessionStarted.run();
+            }
+        }
+        handler.removeCallbacks(confirmTask);
+        schedulePoll();
+    }
+
+    public void playbackStateChanged(boolean playing) {
+        this.playing = playing;
+        if (null!=observer) {
+            schedulePoll();
+        }
     }
 
     public CarConnection(Context context, Runnable onSessionEnded) {
@@ -122,12 +151,7 @@ public class CarConnection {
         }
         Utils.debug("state:"+state+", seenConnected:"+seenConnected+", confirming:"+confirming);
         if (NOT_CONNECTED!=state) {
-            if (!seenConnected) {
-                seenConnected = true;
-                connectedSince = SystemClock.elapsedRealtime();
-            }
-            handler.removeCallbacks(confirmTask);
-            schedulePoll();
+            markConnected();
             return;
         }
         if (!seenConnected) {
@@ -142,7 +166,7 @@ public class CarConnection {
             try {
                 onSessionEnded.run();
             } catch (Exception e) {
-                Utils.error("Failed to stop player", e);
+                Utils.error("Failed to handle Android Auto session end", e);
             }
             return;
         }
@@ -152,7 +176,7 @@ public class CarConnection {
 
     private void schedulePoll() {
         handler.removeCallbacks(pollTask);
-        handler.postDelayed(pollTask, POLL_INTERVAL);
+        handler.postDelayed(pollTask, seenConnected || playing ? ACTIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL);
     }
 
     private void confirm() {

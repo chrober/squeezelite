@@ -191,4 +191,15 @@
             app:singleLineTitle="false"/>
     </PreferenceCategory>
 
+    <PreferenceCategory
+        app:iconSpaceReserved="false"
+        app:title="@string/android_auto">
+        <SwitchPreferenceCompat
+            app:iconSpaceReserved="false"
+            app:key="pause_on_android_auto_disconnect"
+            app:summary="@string/pause_on_android_auto_disconnect_summary"
+            app:title="@string/pause_on_android_auto_disconnect"
+            app:singleLineTitle="false"/>
+    </PreferenceCategory>
+
 </PreferenceScreen>
