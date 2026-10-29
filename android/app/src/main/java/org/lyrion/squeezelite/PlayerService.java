@@ -290,6 +290,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (useAudioFocus || AndroidAutoSessionAction.RESUME!=androidAutoSessionAction) {
             carConnection = new CarConnection(this,
                     () -> handleAndroidAutoSessionEnd(androidAutoSessionAction));
+            if (pauseOnAndroidAutoSessionChange) {
+                carConnection.setOnSessionConnected(this::pausePlayback);
+            }
         }
         if (useAudioFocus) {
             audioFocus = new AudioFocus(this, lib, carConnection,
@@ -314,14 +317,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 @Override
                 public void onPause() {
                     Utils.debug("");
-                    if (null!=lib) {
-                        lib.pause();
-                    }
+                    pausePlayback();
                 }
 
                 @Override
                 public void onStop() {
                     Utils.debug("");
+                    cancelPendingResume();
                     if (null!=lib) {
                         lib.stopPlayback();
                     }
@@ -359,14 +361,16 @@ public class PlayerService extends MediaBrowserServiceCompat {
                                 lib.play();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                                lib.pause();
+                                pausePlayback();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_STOP:
+                                cancelPendingResume();
                                 lib.stopPlayback();
                                 return true;
                             // These do not say which of the two is wanted, so toggle
                             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                             case KeyEvent.KEYCODE_HEADSETHOOK:
+                                cancelPendingResume();
                                 lib.playPause();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
@@ -395,8 +399,15 @@ public class PlayerService extends MediaBrowserServiceCompat {
     }
 
     private void pausePlayback() {
+        cancelPendingResume();
         if (null!=lib) {
             lib.pause();
+        }
+    }
+
+    private void cancelPendingResume() {
+        if (null!=audioFocus) {
+            audioFocus.cancelPendingResume();
         }
     }
 

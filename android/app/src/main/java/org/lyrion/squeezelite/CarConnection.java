@@ -37,6 +37,7 @@ public class CarConnection {
     private static final Uri URI = Uri.parse("content://androidx.car.app.connection");
     private static final String STATE = "CarConnectionState";
     public static final int NOT_CONNECTED = 0;
+    public static final int UNKNOWN = -1;
     // Verify a zero state once, without visibly delaying local playback after disconnect.
     private static final long CONFIRM_DELAY = 500;
     private static final long ACTIVE_POLL_INTERVAL = 1000;
@@ -47,8 +48,11 @@ public class CarConnection {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable confirmTask = this::confirm;
     private final Runnable pollTask = this::poll;
+    private final CarConnectionState connectionState = new CarConnectionState();
+    private long queryNumber = 0;
     private ContentObserver observer = null;
     private Runnable onSessionStarted = null;
+    private Runnable onSessionConnected = null;
     private boolean seenConnected = false;
     private boolean playing = false;
     // 0 if no session is running
@@ -58,14 +62,14 @@ public class CarConnection {
     public static int state(Context context) {
         try (Cursor cursor = context.getContentResolver().query(URI, new String[]{STATE}, null, null, null)) {
             if (null == cursor) {
-                return NOT_CONNECTED;
+                return UNKNOWN;
             }
             int col = cursor.getColumnIndex(STATE);
-            return col < 0 || !cursor.moveToNext() ? NOT_CONNECTED : cursor.getInt(col);
+            return col < 0 || !cursor.moveToNext() ? UNKNOWN : cursor.getInt(col);
         } catch (Exception e) {
             // Android Auto not installed, or too old
             Utils.debug("Car connection state unavailable");
-            return NOT_CONNECTED;
+            return UNKNOWN;
         }
     }
 
@@ -73,11 +77,23 @@ public class CarConnection {
         return connectedSince;
     }
 
+    long queryVersion() {
+        return queryNumber;
+    }
+
     public void setOnSessionStarted(Runnable onSessionStarted) {
         this.onSessionStarted = onSessionStarted;
     }
 
+    public void setOnSessionConnected(Runnable onSessionConnected) {
+        this.onSessionConnected = onSessionConnected;
+    }
+
     void markConnected() {
+        onState(++queryNumber, 2, false);
+    }
+
+    private void markConnected(boolean transition) {
         if (null==observer) {
             return;
         }
@@ -86,6 +102,9 @@ public class CarConnection {
             connectedSince = SystemClock.elapsedRealtime();
             if (null!=onSessionStarted) {
                 onSessionStarted.run();
+            }
+            if (transition && null!=onSessionConnected) {
+                onSessionConnected.run();
             }
         }
         handler.removeCallbacks(confirmTask);
@@ -138,40 +157,43 @@ public class CarConnection {
     }
 
     private void read(boolean confirming) {
+        long query = ++queryNumber;
         new Thread(() -> {
             int state = state(context);
-            handler.post(() -> onState(state, confirming));
+            handler.post(() -> onState(query, state, confirming));
         }).start();
     }
 
-    private void onState(int state, boolean confirming) {
+    private void onState(long query, int state, boolean confirming) {
         if (null==observer) {
             // Released whilst the query was running
             return;
         }
         Utils.debug("state:"+state+", seenConnected:"+seenConnected+", confirming:"+confirming);
-        if (NOT_CONNECTED!=state) {
-            markConnected();
+        int action = connectionState.observe(query, state, confirming);
+        if (!connectionState.isCurrent(query)) {
             return;
         }
-        if (!seenConnected) {
-            schedulePoll();
-            return;
-        }
-        if (confirming) {
+        if (CarConnectionState.INITIAL_CONNECTED==action || CarConnectionState.CONNECTED==action) {
+            markConnected(CarConnectionState.CONNECTED==action);
+        } else if (CarConnectionState.DISCONNECTED==action) {
             Utils.info("Android Auto session ended");
             seenConnected = false;
             connectedSince = 0;
-            handler.removeCallbacks(pollTask);
+            schedulePoll();
             try {
                 onSessionEnded.run();
             } catch (Exception e) {
                 Utils.error("Failed to handle Android Auto session end", e);
             }
-            return;
+        } else if (CarConnectionState.CONFIRM==action) {
+            handler.removeCallbacks(confirmTask);
+            handler.postDelayed(confirmTask, CONFIRM_DELAY);
+        } else if (state>NOT_CONNECTED) {
+            markConnected(false);
+        } else if (UNKNOWN==state || (NOT_CONNECTED==state && !seenConnected)) {
+            schedulePoll();
         }
-        handler.removeCallbacks(confirmTask);
-        handler.postDelayed(confirmTask, CONFIRM_DELAY);
     }
 
     private void schedulePoll() {
