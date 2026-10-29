@@ -49,6 +49,7 @@ public class AudioFocus {
     private AudioFocusRequest request = null;
     private boolean haveFocus = false;
     private boolean pausedByLoss = false;
+    private boolean suppressAutoResume = false;
     private boolean lostFocusDuringCarSession = false;
     private long reclaimDeadline = 0;
 
@@ -74,7 +75,7 @@ public class AudioFocus {
                 handler.removeCallbacks(reclaimTask);
                 lostFocusDuringCarSession = false;
                 reclaimDeadline = 0;
-                if (pausedByLoss) {
+                if (pausedByLoss && !suppressAutoResume) {
                     pausedByLoss = false;
                     lib.play();
                 }
@@ -84,7 +85,7 @@ public class AudioFocus {
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
                 lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
-                pausedByLoss = resumeOnCarConnection && mayBeCarStarting();
+                pausedByLoss = !suppressAutoResume && resumeOnCarConnection && mayBeCarStarting();
                 if (pausedByLoss) {
                     scheduleReclaim(RECLAIM_DELAY);
                 } else {
@@ -93,7 +94,7 @@ public class AudioFocus {
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 // e.g. phone call, or navigation prompt
-                pausedByLoss = true;
+                pausedByLoss = !suppressAutoResume;
                 lib.pause();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
@@ -131,17 +132,18 @@ public class AudioFocus {
         if (!pausedByLoss) {
             return;
         }
+        long version = null==carConnection ? 0 : carConnection.queryVersion();
         new Thread(() -> {
             int state = CarConnection.state(context);
-            handler.post(() -> onCarConnectionState(state));
+            handler.post(() -> onCarConnectionState(state, version));
         }).start();
     }
 
-    private void onCarConnectionState(int state) {
+    private void onCarConnectionState(int state, long version) {
         if (!pausedByLoss) {
             return;
         }
-        if (CarConnection.NOT_CONNECTED == state) {
+        if (state<=CarConnection.NOT_CONNECTED || (null!=carConnection && version!=carConnection.queryVersion())) {
             long now = SystemClock.elapsedRealtime();
             if (now<reclaimDeadline) {
                 handler.postDelayed(reclaimTask, Math.min(RECLAIM_RETRY_DELAY, reclaimDeadline-now));
@@ -166,10 +168,19 @@ public class AudioFocus {
 
     public void request() {
         pausedByLoss = false;
+        suppressAutoResume = false;
         lostFocusDuringCarSession = false;
         reclaimDeadline = 0;
         handler.removeCallbacks(reclaimTask);
         acquire();
+    }
+
+    public void cancelPendingResume() {
+        pausedByLoss = false;
+        suppressAutoResume = true;
+        lostFocusDuringCarSession = false;
+        reclaimDeadline = 0;
+        handler.removeCallbacks(reclaimTask);
     }
 
     public void resumeAfterCarDisconnect() {
