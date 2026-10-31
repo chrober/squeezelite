@@ -37,8 +37,9 @@ public class AudioFocus {
     private static final long RECLAIM_DELAY = 1500;
     private static final long RECLAIM_RETRY_DELAY = 500;
     private static final long RECLAIM_TIMEOUT = 10000;
-    // A loss later than this into a car session is another app
-    private static final long STARTUP_WINDOW = 60000;
+    // A loss later than this into a car session is another app. Android Auto takes focus as the session
+    // starts (seen: at once, and again 9s later); a podcast app started after this pauses the player.
+    private static final long STARTUP_WINDOW = 15000;
 
     private final Context context;
     private final AudioManager audioManager;
@@ -82,10 +83,12 @@ public class AudioFocus {
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 haveFocus = false;
+                // Only resumed later if it was playing: 'pause 0' on a stopped player starts its playlist from the top
+                boolean wasPlaying = lib.isPlaying();
                 lib.pause();
                 handler.removeCallbacks(reclaimTask);
-                lostFocusDuringCarSession = null!=carConnection && 0!=carConnection.connectedSince();
-                pausedByLoss = !suppressAutoResume && resumeOnCarConnection && mayBeCarStarting();
+                lostFocusDuringCarSession = wasPlaying && null!=carConnection && 0!=carConnection.connectedSince();
+                pausedByLoss = wasPlaying && !suppressAutoResume && resumeOnCarConnection && mayBeCarStarting();
                 if (pausedByLoss) {
                     scheduleReclaim(RECLAIM_DELAY);
                 } else {
@@ -93,9 +96,12 @@ public class AudioFocus {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // e.g. phone call, or navigation prompt
-                pausedByLoss = !suppressAutoResume;
-                lib.pause();
+                // e.g. phone call, or navigation prompt. Only resumed afterwards if it was playing: 'pause 0' on a
+                // stopped player starts its playlist from the top.
+                if (lib.isPlaying()) {
+                    pausedByLoss = !suppressAutoResume;
+                    lib.pause();
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 // Android (8+) lowers our volume itself

@@ -179,7 +179,7 @@ static int _read_data(void *opaque, u8_t *buffer, int buf_size) {
 	LOCK_S;
 
 	bytes = min(_buf_used(streambuf), _buf_cont_read(streambuf));
-	ff->end_of_stream = (stream.state <= DISCONNECT && bytes == 0);
+	ff->end_of_stream = (STREAM_INPUT_ENDED && bytes == 0);
 	bytes = min(bytes, buf_size);
 
 	// for chunked wma extract asf header and data frames from framing structure

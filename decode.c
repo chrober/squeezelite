@@ -59,13 +59,15 @@ static void *decode_thread(void *vargp) {
 		size_t bytes, space, min_space;
 		bool toend;
 		bool ran = false;
+		bool track_start_pending;
 
 		LOCK_S;
 		bytes = _buf_used(streambuf);
-		toend = (stream.state <= DISCONNECT);
+		toend = (STREAM_INPUT_ENDED);
 		UNLOCK_S;
 		LOCK_O;
 		space = _buf_space(outputbuf);
+		track_start_pending = output.track_start != NULL;
 		UNLOCK_O;
 
 		LOCK_D;
@@ -81,7 +83,10 @@ static void *decode_thread(void *vargp) {
 				min_space = process.max_out_frames * BYTES_PER_FRAME;
 			);
 			
-			if (space > min_space && (bytes > codec->min_read_bytes || toend)) {
+			// Output knows of one track start at a time: don't start decoding the next track before the previous one
+			// has started playing, or its start is overwritten. Can happen when the output buffer holds a whole
+			// track (a large one, see android.c), e.g. a short first track - LMS then took track 2 as started.
+			if (space > min_space && (bytes > codec->min_read_bytes || toend) && !(decode.new_stream && track_start_pending)) {
 				
 				decode.state = codec->decode();
 

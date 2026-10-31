@@ -454,6 +454,8 @@ void output_flush(void) {
 		output.delay_active = false;
 	}
 	output.frames_played = 0;
+	// The buffer is empty: a track start left in it would make the decoder wait for it forever (see decode.c)
+	output.track_start = NULL;
 	UNLOCK;
 }
 

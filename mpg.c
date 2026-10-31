@@ -162,7 +162,7 @@ static decode_state mpg_decode(void) {
 
 	LOG_SDEBUG("write %u frames", size / BYTES_PER_FRAME);
 
-	if (ret == MPG123_DONE || (bytes == 0 && size == 0 && stream.state <= DISCONNECT)) {
+	if (ret == MPG123_DONE || (bytes == 0 && size == 0 && STREAM_INPUT_ENDED)) {
 		UNLOCK_S;
 		LOG_INFO("stream complete");
 		return DECODE_COMPLETE;

@@ -72,6 +72,10 @@ static bool fixed_volume = false;
 
 extern struct outputstate output;
 extern struct buffer *outputbuf;
+#ifdef ANDROID
+extern struct decodestate decode;
+extern struct streamstate stream;
+#endif
 
 #define LOCK   mutex_lock(outputbuf->mutex)
 #define UNLOCK mutex_unlock(outputbuf->mutex)
@@ -537,14 +541,41 @@ static int pa_callback(void *pa_input, void *pa_output, unsigned long pa_frames_
 	output.updated = gettime_ms();
 	output.frames_played_dmp = output.frames_played;
 
-	do {
-		frames = _output_frames(pa_frames_wanted);
-		pa_frames_wanted -= frames;
-	} while (pa_frames_wanted > 0 && frames != 0);
+	{
+		bool retried = false;
+		while (pa_frames_wanted > 0) {
+			bool started = output.track_started;
+			frames = _output_frames(pa_frames_wanted);
+			pa_frames_wanted -= frames;
+			if (frames == 0) {
+				// A track start right at the read position returns 0 frames: carry on with the new track instead of
+				// padding the rest of this callback with silence (~21 ms at 192 kHz at some gapless track changes).
+				if (!retried && !started && output.track_started) {
+					retried = true;
+					continue;
+				}
+				break;
+			}
+		}
+	}
 
 	if (pa_frames_wanted > 0) {
 		LOG_DEBUG("pad with silence");
 		memset(optr, 0, pa_frames_wanted * BYTES_PER_FRAME);
+#ifdef ANDROID
+		// An audible gap, unless the playlist has ended (nothing left to decode or stream). Read without the decode
+		// and stream locks: only for logging.
+		if (output.state == OUTPUT_RUNNING && (decode.state == DECODE_RUNNING || decode.state == DECODE_READY ||
+				stream.state >= STREAMING_WAIT)) {
+			if (!output.underrun_padding) {
+				output.underruns++; // a new gap, not the next callback of the same one
+			}
+			output.underrun_frames += pa_frames_wanted;
+			output.underrun_padding = true;
+		}
+	} else {
+		output.underrun_padding = false;
+#endif
 	}
 
 	if (output.state == OUTPUT_OFF) {

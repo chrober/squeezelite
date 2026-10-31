@@ -135,6 +135,56 @@ void send_playback_state_to_app(void) {
 	}
 }
 
+void send_log_to_app(const char *message) {
+	if (!jvm || !obj || !clazz) {
+		return;
+	}
+	JNIEnv *env;
+	bool detached = JNI_EDETACHED == (*jvm)->GetEnv(jvm, &env, JNI_VERSION_1_6);
+	if (detached) {
+		if (JNI_OK!=(*jvm)->AttachCurrentThread(jvm, &env, NULL)) {
+			LOG_ERROR("Failed to get attach current thread");
+			return;
+		}
+	}
+	jmethodID method = (*env)->GetMethodID(env, clazz, "nativeLog", "(Ljava/lang/String;)V");
+	if (method) {
+		jstring jStr = (*env)->NewStringUTF(env, message);
+		(*env)->CallVoidMethod(env, obj, method, jStr);
+		(*env)->DeleteLocalRef(env, jStr);
+	} else {
+		(*env)->ExceptionClear(env);
+		LOG_ERROR("nativeLog not found");
+	}
+	if (detached) {
+		(*jvm)->DetachCurrentThread(jvm);
+	}
+}
+
+void send_stream_cut_to_app(u64_t bytes) {
+	if (!jvm || !obj || !clazz) {
+		return;
+	}
+	JNIEnv *env;
+	bool detached = JNI_EDETACHED == (*jvm)->GetEnv(jvm, &env, JNI_VERSION_1_6);
+	if (detached) {
+		if (JNI_OK!=(*jvm)->AttachCurrentThread(jvm, &env, NULL)) {
+			LOG_ERROR("Failed to get attach current thread");
+			return;
+		}
+	}
+	jmethodID method = (*env)->GetMethodID(env, clazz, "streamCut", "(J)V");
+	if (method) {
+		(*env)->CallVoidMethod(env, obj, method, (jlong)bytes);
+	} else {
+		(*env)->ExceptionClear(env);
+		LOG_ERROR("streamCut not found");
+	}
+	if (detached) {
+		(*jvm)->DetachCurrentThread(jvm);
+	}
+}
+
 void send_connection_state_to_app(const char *address) {
 	if (!jvm || !obj || !clazz) {
 		return;
@@ -158,7 +208,7 @@ void send_connection_state_to_app(const char *address) {
 	}
 }
 
-JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_start(JNIEnv *env, jobject jobj, jstring lms_param, jstring mac_param, jstring name_param, jint idle, jint fixed_vol, jint loglevel, jint mobile_network, jint buffer_size, jint force_opensles) {
+JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_start(JNIEnv *env, jobject jobj, jstring lms_param, jstring mac_param, jstring name_param, jint idle, jint fixed_vol, jint loglevel, jint mobile_network, jint buffer_size, jint lookahead_max, jint force_opensles) {
 	const char *server = (*env)->GetStringUTFChars(env, lms_param, NULL);
 	const char *mac_str = (*env)->GetStringUTFChars(env, mac_param, NULL);
 	char *output_device = "default";
@@ -234,6 +284,10 @@ JNIEXPORT void JNICALL Java_org_lyrion_squeezelite_Library_start(JNIEnv *env, jo
 	}
 
 	stream_init(log_stream, stream_buf_size);
+	// "Buffer the next song in full": the stream buffer grows from its set size up to this, per track (see stream.c)
+	if (lookahead_max > 0) {
+		stream_lookahead((size_t)lookahead_max * 1024 * 1024);
+	}
 
 	output_init_pa(log_output, output_device, output_buf_size, output_params, rates, rate_delay, (unsigned int)idle, 0!=fixed_vol);
 

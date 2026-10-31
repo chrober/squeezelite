@@ -29,5 +29,7 @@ aaudio_result_t LibAAudioStream_getFramesRead(AAudioStream* stream, int64_t* fra
 aaudio_result_t LibAAudioStream_getTimeNanos(AAudioStream* stream, int64_t* nanoseconds);
 /* Actual frames-per-burst, or -1 when unavailable. */
 int32_t LibAAudioStream_getFramesPerBurst(AAudioStream* stream);
+/* Underruns of the stream so far, or -1 when unavailable. */
+int32_t LibAAudioStream_getXRunCount(AAudioStream* stream);
 
 #endif

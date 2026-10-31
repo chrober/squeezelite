@@ -735,7 +735,7 @@ static decode_state dsd_decode(void) {
 
 	LOCK_S;
 
-	if ((stream.state <= DISCONNECT && !_buf_used(streambuf)) || (!decode.new_stream && d->sample_bytes == 0)) {
+	if ((STREAM_INPUT_ENDED && !_buf_used(streambuf)) || (!decode.new_stream && d->sample_bytes == 0)) {
 		UNLOCK_S;
 		return DECODE_COMPLETE;
 	}

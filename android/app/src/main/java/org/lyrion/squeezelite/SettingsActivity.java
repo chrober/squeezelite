@@ -277,7 +277,29 @@ public class SettingsActivity extends AppCompatActivity {
             }
         }
 
+        private int lookaheadMax() {
+            try {
+                return Integer.parseInt(getPreferenceManager().getSharedPreferences().getString(Prefs.LOOKAHEAD_MAX_KEY, Prefs.DEFAULT_LOOKAHEAD_MAX));
+            } catch (NumberFormatException e) {
+                return Integer.parseInt(Prefs.DEFAULT_LOOKAHEAD_MAX);
+            }
+        }
+
+        @Override
+        public void onDisplayPreferenceDialog(@NonNull Preference preference) {
+            if (preference instanceof BufferPreference) {
+                BufferPreferenceDialog dialog = BufferPreferenceDialog.newInstance(preference.getKey());
+                dialog.setTargetFragment(this, 0);
+                dialog.show(getParentFragmentManager(), "BufferPreferenceDialog");
+                return;
+            }
+            super.onDisplayPreferenceDialog(preference);
+        }
+
         private void updateSummary(String key) {
+            if (Prefs.LOOKAHEAD_MAX_KEY.equals(key)) {
+                key = Prefs.STREAM_BUFFER_KEY; // shown in the dynamic buffer's summary
+            }
             Utils.debug(key);
             Preference pref = getPreferenceManager().findPreference(key);
             if (pref != null) {
@@ -294,6 +316,8 @@ public class SettingsActivity extends AppCompatActivity {
                         } else {
                             pref.setSummary(lp.getEntry());
                         }
+                    } else if (Prefs.STREAM_BUFFER_KEY.equals(key) && Prefs.STREAM_BUFFER_DYNAMIC.equals(lp.getValue())) {
+                        pref.setSummary(getString(R.string.buffer_dynamic_summary, lookaheadMax()));
                     } else {
                         pref.setSummary(lp.getEntry());
                     }

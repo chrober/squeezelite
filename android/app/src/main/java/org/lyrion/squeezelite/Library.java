@@ -47,8 +47,10 @@ public class Library {
     private static final String[] NEXT_COMMAND = {"playlist", "index", "+1"};
     private static final String[] STOP_COMMAND = {"stop"};
 
-    // Timeout after which Squeezelite will close audio stream
-    static final int STREAM_IDLE_TIMEOUT = 30000;
+    // Timeout after which Squeezelite will close audio stream once paused or stopped. Short: while the stream is
+    // open (playing silence) Android tells Bluetooth headsets that audio still plays, so their play/pause button
+    // sends pause again instead of play.
+    static final int STREAM_IDLE_TIMEOUT = 1000;
     static long MIN_LMS_VOLUME_UPDATE_TIME = 750;
     // LMS fades its volume in steps when pausing and resuming, so let it settle before acting
     static final long LMS_VOLUME_SETTLE_TIME = 200;
@@ -81,6 +83,7 @@ public class Library {
     private int pendingLmsVolume = UNKNOWN_VOL;
     private int maxBitrate = 0;
     private boolean forgetOnStop = false;
+    private static final long FORGET_TIMEOUT = 3000;
     private volatile PlayerService service;
     private VolumeChangeObserver observer;
     private AudioManager audioManager;
@@ -123,7 +126,12 @@ public class Library {
                 : Prefs.VOLUME_CONTROL_DEVICE.equals(vc)
                 ? VOL_DEV
                 : VOL_SYNC;
-        int streamBuffer = Integer.parseInt(prefs.getString(Prefs.STREAM_BUFFER_KEY, Prefs.DEFAULT_STREAM_BUFFER));
+        int bufferSetting = Integer.parseInt(prefs.getString(Prefs.STREAM_BUFFER_KEY, Prefs.DEFAULT_STREAM_BUFFER));
+        // dynamic (negative): starts at the default size and grows to hold whole songs, up to lookaheadMax MB each
+        int streamBuffer = Math.max(bufferSetting, 0);
+        int lookaheadMax = bufferSetting < 0
+                ? Integer.parseInt(prefs.getString(Prefs.LOOKAHEAD_MAX_KEY, Prefs.DEFAULT_LOOKAHEAD_MAX))
+                : 0;
 
         maxBitrate = Integer.parseInt(prefs.getString(Prefs.MAX_BITRATE_KEY, Prefs.DEFAULT_MAX_BITRATE));
         int maxBitrateWhen = Integer.parseInt(prefs.getString(Prefs.MAX_BITRATE_WHEN_KEY, Prefs.DEFAULT_MAX_BITRATE_WHEN));
@@ -192,6 +200,7 @@ public class Library {
               LOG_ERROR,
               cellular || metered ? 1 : 0,
               streamBuffer,
+              lookaheadMax,
               prefs.getBoolean(Prefs.USE_OPENSLES_KEY, Prefs.DEFAULT_USE_OPENSLES) ? 1 : 0));
         thread.start();
         return usingBtName ? name : null;
@@ -238,6 +247,12 @@ public class Library {
                 System.exit(0);
             });
             jsonRpc = null;
+            // No response comes if the server can't be reached (e.g. the player was stopped as its connection was
+            // lost), and the process would be left running with its player stopped
+            handler.postDelayed(() -> {
+                Utils.debug("No 'forget' resp");
+                System.exit(0);
+            }, FORGET_TIMEOUT);
         } else {
             System.exit(0);
         }
@@ -377,6 +392,24 @@ public class Library {
         isInitialPower = false;
     }
 
+    // Called from C code with something worth having in the log file, e.g. output underruns (audio cuts).
+    @Keep
+    public void nativeLog(String message) {
+        Utils.warn(message);
+    }
+
+    // Called from C code when the stream broke off before its end, e.g. when the network changed while streaming
+    // (also while paused: the stream fills the buffer then). Squeezelite would play what it has, report the track
+    // as fully decoded, and LMS would move on to the next track that far into it (heard as a cut). Seeking to the
+    // current position makes LMS stream the track again from there; a paused player stays paused.
+    @Keep
+    public void streamCut(long bytes) {
+        Utils.warn("Stream cut off after " + bytes + " bytes, streaming again from the current position");
+        if (null!=jsonRpc) {
+            jsonRpc.sendMessage(new String[]{"time", "+0"});
+        }
+    }
+
     // Called from C code when a track starts, or playback is paused, resumed, or stopped.
     // 'playing' is whether the player is (about to be) outputting audio.
     @Keep
@@ -387,6 +420,10 @@ public class Library {
         if (null!=svc) {
             svc.playbackStateChanged(playing);
         }
+    }
+
+    public boolean isPlaying() {
+        return playing;
     }
 
     public void prev() {
@@ -446,6 +483,6 @@ public class Library {
         return null==jsonRpc ? null : jsonRpc.getMac();
     }
 
-    private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer, int openSlEs);
+    private native void start(String lms, String mac, String name, int idleTimeout, int fixedVolume, int logging, int mobileNetwork, int streamBuffer, int lookaheadMax, int openSlEs);
     private native void stop();
 }

@@ -20,13 +20,18 @@
 
 package org.lyrion.squeezelite;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+
+import androidx.core.content.ContextCompat;
 
 /**
  * Watches whether Android Auto is projecting, via its content provider. The end of a session is
@@ -36,6 +41,9 @@ public class CarConnection {
     // See androidx.car.app.connection.CarConnection
     private static final Uri URI = Uri.parse("content://androidx.car.app.connection");
     private static final String STATE = "CarConnectionState";
+    // Sent by Android Auto when its state changes; the provider does not always notify the change, and while
+    // idle the state is only polled every 30 s
+    private static final String UPDATED_ACTION = "androidx.car.app.connection.action.CAR_CONNECTION_UPDATED";
     public static final int NOT_CONNECTED = 0;
     public static final int UNKNOWN = -1;
     // Verify a zero state once, without visibly delaying local playback after disconnect.
@@ -51,6 +59,7 @@ public class CarConnection {
     private final CarConnectionState connectionState = new CarConnectionState();
     private long queryNumber = 0;
     private ContentObserver observer = null;
+    private BroadcastReceiver receiver = null;
     private Runnable onSessionStarted = null;
     private Runnable onSessionConnected = null;
     private boolean seenConnected = false;
@@ -140,6 +149,19 @@ public class CarConnection {
             observer = null;
             return;
         }
+        receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                read(false);
+            }
+        };
+        try {
+            ContextCompat.registerReceiver(context, receiver, new IntentFilter(UPDATED_ACTION),
+                    ContextCompat.RECEIVER_EXPORTED);
+        } catch (Exception e) {
+            Utils.error("Failed to receive car connection updates", e);
+            receiver = null;
+        }
         read(false);
     }
 
@@ -153,6 +175,14 @@ public class CarConnection {
                 Utils.error("Failed to stop watching car connection", e);
             }
             observer = null;
+        }
+        if (null!=receiver) {
+            try {
+                context.unregisterReceiver(receiver);
+            } catch (Exception e) {
+                Utils.error("Failed to stop receiving car connection updates", e);
+            }
+            receiver = null;
         }
     }
 
