@@ -87,6 +87,17 @@ static log_level loglevel;
 static struct buffer buf;
 struct buffer *streambuf = &buf;
 
+// Look-ahead (Android "Buffer the next song in full"). LMS only sends the next track once the player reports the
+// current one done (STMd), and only ever two at a time (one playing, one streaming). With look-ahead, buffers grow
+// to hold a whole track (up to lookahead_max), and slimproto.c reports STMd as soon as the decoder's track has fully
+// arrived: the next track then downloads into nextbuf while the current one is still decoded, and stream_handover()
+// gives it to the decoder at the end of the current one. A track that doesn't fit is streamed as it plays, as
+// without look-ahead (the stream waits for space), and look-ahead resumes with the track after it.
+static struct buffer nextbuf; // protected by streambuf's mutex, has none of its own
+static struct buffer *wbuf = &buf; // where the stream thread writes: buf, or nextbuf while stream.next_pending
+static size_t lookahead_max; // 0: look-ahead off
+static size_t lookahead_base; // size of a new next track buffer
+
 #define LOCK   mutex_lock(streambuf->mutex)
 #define UNLOCK mutex_unlock(streambuf->mutex)
 
@@ -316,7 +327,7 @@ static size_t memfind(const u8_t* haystack, size_t n, const char* needle, size_t
  * first page of the vorbis_comment packet... nothing is perfect */
 static void stream_ogg(size_t n) {
 	if (ogg.state == STREAM_OGG_OFF) return;
-	u8_t* p = streambuf->writep;
+	u8_t* p = wbuf->writep;
 
 	while (n) {
 		size_t consumed = min(ogg.miss, n);
@@ -443,7 +454,7 @@ static void stream_ogg(size_t n) {
 
 	// fill sync buffer with all what we have
 	char* buffer = OG(&ogg.dl, sync_buffer, &ogg.sync, n);
-	memcpy(buffer, streambuf->writep, n);
+	memcpy(buffer, wbuf->writep, n);
 	OG(&ogg.dl, sync_wrote, &ogg.sync, n);
 
 	// extract a page from sync buffer
@@ -524,7 +535,20 @@ static void *stream_thread(void *vargp) {
 
 		LOCK;
 
-		space = min(_buf_space(streambuf), _buf_cont_write(streambuf));
+		// look-ahead: grow the buffer to hold the whole track
+		if (lookahead_max && fd >= 0 && stream.state > STREAMING_WAIT && wbuf->size < lookahead_max &&
+			_buf_space(wbuf) < wbuf->size / 4) {
+			size_t size = min(wbuf->size * 2, lookahead_max);
+			if (_buf_grow(wbuf, size)) {
+				LOG_APP("%s buffer grown to %u MB", wbuf == &nextbuf ? "next track" : "stream", (unsigned)(size / (1024 * 1024)));
+			} else {
+				LOG_APP("can't grow the buffer to %u MB, staying at %u MB", (unsigned)(size / (1024 * 1024)),
+						 (unsigned)(wbuf->size / (1024 * 1024)));
+				lookahead_max = wbuf->size; // don't retry for every read
+			}
+		}
+
+		space = min(_buf_space(wbuf), _buf_cont_write(wbuf));
 
 		if (fd < 0 || !space || stream.state <= STREAMING_WAIT) {
 			UNLOCK;
@@ -534,13 +558,13 @@ static void *stream_thread(void *vargp) {
 
 		if (stream.state == STREAMING_FILE) {
 
-			int n = read(fd, streambuf->writep, space);
+			int n = read(fd, wbuf->writep, space);
 			if (n == 0) {
 				LOG_INFO("end of stream");
 				_disconnect(DISCONNECT, DISCONNECT_OK);
 			}
 			if (n > 0) {
-				_buf_inc_writep(streambuf, n);
+				_buf_inc_writep(wbuf, n);
 				stream.bytes += n;
 				LOG_SDEBUG("streambuf read %d bytes", n);
 			}
@@ -700,12 +724,12 @@ static void *stream_thread(void *vargp) {
 					int n;
 					int error;
 
-					space = min(_buf_space(streambuf), _buf_cont_write(streambuf));
+					space = min(_buf_space(wbuf), _buf_cont_write(wbuf));
 					if (stream.meta_interval) {
 						space = min(space, stream.meta_next);
 					}
 					
-					n = _recv(fd, streambuf->writep, space, 0);
+					n = _recv(fd, wbuf->writep, space, 0);
 					if (n == 0) {
 						LOG_INFO("end of stream (%u bytes)", stream.bytes);
 						_disconnect(DISCONNECT, DISCONNECT_OK);
@@ -720,7 +744,7 @@ static void *stream_thread(void *vargp) {
 					
 					if (n > 0) {
 						stream_ogg(n);
-						_buf_inc_writep(streambuf, n);
+						_buf_inc_writep(wbuf, n);
 						stream.bytes += n;
 						if (stream.meta_interval) {
 							stream.meta_next -= n;
@@ -843,6 +867,11 @@ void stream_close(void) {
 #endif
 	free(stream.header);
 	buf_destroy(streambuf);
+	free(nextbuf.buf); // the player can be started again in the same process (Android)
+	memset(&nextbuf, 0, sizeof(nextbuf));
+	wbuf = &buf;
+	stream.next_pending = false;
+	lookahead_max = 0;
 }
 
 void stream_file(const char *header, size_t header_len, unsigned threshold) {
@@ -911,9 +940,11 @@ void stream_sock(u32_t ip, u16_t port, bool use_ssl, bool use_ogg, const char* h
 		return;
 	}
 
-	buf_flush(streambuf);
-
 	LOCK;
+
+	// the buffer being written to: the next track's with look-ahead (stream_next_begin), else the decoder's
+	wbuf->readp = wbuf->buf;
+	wbuf->writep = wbuf->buf;
 
 	fd = sock;
 	stream.state = SEND_HEADERS;
@@ -979,6 +1010,77 @@ bool stream_disconnect(void) {
 	ogg.data = NULL;
 #endif
 
+	UNLOCK;
+	return disc;
+}
+
+// Look-ahead, see nextbuf. max_size 0: off.
+void stream_lookahead(size_t max_size) {
+	LOCK;
+	lookahead_max = max_size;
+	lookahead_base = streambuf->size;
+	UNLOCK;
+	if (max_size) LOG_APP("look-ahead: on, buffers up to %u MB per track", (unsigned)(max_size / (1024 * 1024)));
+}
+
+bool stream_lookahead_enabled(void) {
+	return lookahead_max != 0;
+}
+
+// The next 'strm s' is the next track while the current one is still decoded: have stream_sock() write into nextbuf.
+void stream_next_begin(void) {
+	LOCK;
+	if (!nextbuf.buf) {
+		nextbuf.buf = malloc(lookahead_base);
+		nextbuf.size = nextbuf.base_size = nextbuf.buf ? lookahead_base : 0;
+		nextbuf.wrap = nextbuf.buf + nextbuf.size;
+	}
+	nextbuf.readp = nextbuf.writep = nextbuf.buf;
+	if (nextbuf.buf) {
+		wbuf = &nextbuf;
+		stream.next_pending = true;
+	} else {
+		LOG_ERROR("can't allocate the next track buffer");
+	}
+	UNLOCK;
+}
+
+// The decoder has finished the current track: the next track's data (and its ongoing download) become the decoder's.
+void stream_handover(void) {
+	struct buffer tmp;
+	LOCK;
+	// swap the data, each keeps its mutex (nextbuf has none)
+	tmp = buf;
+	buf.buf = nextbuf.buf; buf.readp = nextbuf.readp; buf.writep = nextbuf.writep; buf.wrap = nextbuf.wrap;
+	buf.size = nextbuf.size; buf.base_size = nextbuf.base_size;
+	// the finished track's buffer is freed: memory is only held for the tracks buffered
+	free(tmp.buf);
+	nextbuf.buf = nextbuf.readp = nextbuf.writep = nextbuf.wrap = NULL;
+	nextbuf.size = nextbuf.base_size = 0;
+	wbuf = &buf;
+	stream.next_pending = false;
+	LOG_APP("look-ahead: next track handed to the decoder, %u bytes buffered (%u MB buffer)", _buf_used(&buf),
+			 (unsigned)(buf.size / (1024 * 1024)));
+	UNLOCK;
+}
+
+// Drop the next track (stop, or LMS flushing it): returns true if its download was stopped.
+bool stream_next_discard(void) {
+	bool pending, disc = false;
+	LOCK;
+	pending = stream.next_pending;
+	UNLOCK;
+	if (pending) {
+		disc = stream_disconnect();
+	}
+	LOCK;
+	if (nextbuf.buf) {
+		free(nextbuf.buf);
+		nextbuf.buf = nextbuf.readp = nextbuf.writep = nextbuf.wrap = NULL;
+		nextbuf.size = nextbuf.base_size = 0;
+	}
+	wbuf = &buf;
+	stream.next_pending = false;
 	UNLOCK;
 	return disc;
 }

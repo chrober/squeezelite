@@ -335,7 +335,7 @@ static decode_state faad_decode(void) {
 	bytes_total = _buf_used(streambuf);
 	bytes_wrap  = min(bytes_total, _buf_cont_read(streambuf));
 
-	if (stream.state <= DISCONNECT && !bytes_total) {
+	if (STREAM_INPUT_ENDED && !bytes_total) {
 		UNLOCK_S;
 		return DECODE_COMPLETE;
 	}

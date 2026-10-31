@@ -202,7 +202,7 @@ static decode_state mad_decode(void) {
 	m->readbuf_len += bytes;
 	_buf_inc_readp(streambuf, bytes);
 
-	if (stream.state <= DISCONNECT && _buf_used(streambuf) == 0) {
+	if (STREAM_INPUT_ENDED && _buf_used(streambuf) == 0) {
 		eos = true;
 		LOG_DEBUG("end of stream");
 		memset(m->readbuf + m->readbuf_len, 0, MAD_BUFFER_GUARD);

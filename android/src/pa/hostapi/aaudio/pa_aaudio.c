@@ -62,6 +62,9 @@
 #include "pa_unix_util.h"
 
 int PaAAudio_ENABLED = 0;
+/* AAudio underruns of the current output stream (Android starved the device while squeezelite was late), -1 if unknown.
+   Read by slimproto to log them. */
+volatile int32_t PaAAudio_xruns = -1;
 
 static unsigned long nativeBufferSize = 0;
 
@@ -386,6 +389,7 @@ static aaudio_data_callback_result_t AaudioDataCallback(AAudioStream *stream, vo
 
     if (aaudioStream->output.use) {
         FillTimeInfo(aaudioStream, stream, numFrames, &timeInfo);
+        PaAAudio_xruns = LibAAudioStream_getXRunCount(stream);
     }
 
     PaUtil_BeginBufferProcessing(&aaudioStream->bufferProcessor, &timeInfo, aaudioStream->cbFlags);

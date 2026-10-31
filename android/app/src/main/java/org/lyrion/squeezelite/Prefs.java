@@ -45,6 +45,9 @@ public class Prefs {
     public static final String MAX_BITRATE_KEY = "max_bitrate";
     public static final String MAX_BITRATE_WHEN_KEY = "max_bitrate_when";
     public static final String STREAM_BUFFER_KEY = "stream_buffer";
+    public static final String LOOKAHEAD_MAX_KEY = "lookahead_max";
+    // stream_buffer value: buffer the current and the next song in full, growing up to lookahead_max MB per song
+    public static final String STREAM_BUFFER_DYNAMIC = "-1";
     public static final String USE_OPENSLES_KEY = "use_opensles";
     public static final String START_ON_BOOT_KEY = "start_on_boot";
     public static final String START_ON_BOOT_DELAY_KEY = "start_on_boot_delay";
@@ -53,6 +56,7 @@ public class Prefs {
     public static final String AUTOSTOP_BT_KEY = "autostop_bt";
     public static final String AUTOSTART_ANDROID_AUTO_KEY = "autostart_android_auto";
     public static final String PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY = "pause_on_android_auto_disconnect";
+    public static final String PAUSE_ON_ANDROID_AUTO_CONNECT_KEY = "pause_on_android_auto_connect";
     public static final String BT_MAC_ADDRESSES_KEY = "bt_mac_addresses";
     public static final String USE_BT_ID_KEY = "use_bt_id";
     public static final String SEND_TRACK_DETAILS_KEY = "send_track_details";
@@ -75,6 +79,7 @@ public class Prefs {
     public static String DEFAULT_MAX_BITRATE = "-1";
     public static String DEFAULT_MAX_BITRATE_WHEN = String.valueOf(MAX_BITRATE_WHEN_EITHER);
     public static String DEFAULT_STREAM_BUFFER = "0";
+    public static String DEFAULT_LOOKAHEAD_MAX = "256";
     public static boolean DEFAULT_USE_OPENSLES = false;
     public static boolean DEFAULT_START_ON_BOOT = false;
     public static String DEFAULT_START_ON_BOOT_DELAY = "0";
@@ -152,11 +157,19 @@ public class Prefs {
             }
             editor.putString(MAX_BITRATE_WHEN_KEY, DEFAULT_MAX_BITRATE_WHEN);
         }
-        if (!sharedPreferences.contains(STREAM_BUFFER_KEY)) {
+        if (!sharedPreferences.contains(STREAM_BUFFER_KEY) ||
+                Integer.parseInt(sharedPreferences.getString(STREAM_BUFFER_KEY, DEFAULT_STREAM_BUFFER)) > 32) {
+            // 64 and 128 MB were removed: the dynamic buffer (STREAM_BUFFER_DYNAMIC) replaces them
             if (null==editor) {
                 editor = sharedPreferences.edit();
             }
-            editor.putString(STREAM_BUFFER_KEY, DEFAULT_STREAM_BUFFER);
+            editor.putString(STREAM_BUFFER_KEY, sharedPreferences.contains(STREAM_BUFFER_KEY) ? "32" : DEFAULT_STREAM_BUFFER);
+        }
+        if (!sharedPreferences.contains(LOOKAHEAD_MAX_KEY)) {
+            if (null==editor) {
+                editor = sharedPreferences.edit();
+            }
+            editor.putString(LOOKAHEAD_MAX_KEY, DEFAULT_LOOKAHEAD_MAX);
         }
         if (!sharedPreferences.contains(USE_OPENSLES_KEY)) {
             if (null==editor) {
@@ -193,6 +206,12 @@ public class Prefs {
                 editor = sharedPreferences.edit();
             }
             editor.putBoolean(PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false);
+        }
+        if (!sharedPreferences.contains(PAUSE_ON_ANDROID_AUTO_CONNECT_KEY)) {
+            if (null==editor) {
+                editor = sharedPreferences.edit();
+            }
+            editor.putBoolean(PAUSE_ON_ANDROID_AUTO_CONNECT_KEY, false);
         }
         if (!sharedPreferences.contains(AUTOSTOP_BT_KEY)) {
             if (null==editor) {

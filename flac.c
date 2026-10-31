@@ -146,7 +146,7 @@ static FLAC__StreamDecoderReadStatus read_cb(const FLAC__StreamDecoder *decoder,
 	LOCK_S;
 	bytes = min(_buf_used(streambuf), _buf_cont_read(streambuf));
 	bytes = min(bytes, *want);
-	end = (stream.state <= DISCONNECT && bytes == 0);
+	end = (STREAM_INPUT_ENDED && bytes == 0);
 
 	memcpy(buffer, streambuf->readp, bytes);
 	_buf_inc_readp(streambuf, bytes);
