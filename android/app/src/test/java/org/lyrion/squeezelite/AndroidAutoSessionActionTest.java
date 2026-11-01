@@ -6,8 +6,8 @@ import static org.junit.Assert.assertEquals;
 
 public class AndroidAutoSessionActionTest {
     @Test
-    public void resumesWhenNeitherAndroidAutoOptionIsEnabled() {
-        assertEquals(AndroidAutoSessionAction.RESUME,
+    public void takesNoActionWhenNeitherAndroidAutoOptionIsEnabled() {
+        assertEquals(AndroidAutoSessionAction.NONE,
                 AndroidAutoSessionAction.forSettings(false, false));
     }
 
