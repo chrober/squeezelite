@@ -287,7 +287,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
                 pauseOnAndroidAutoSessionChange);
         boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
-        if (useAudioFocus || AndroidAutoSessionAction.RESUME!=androidAutoSessionAction) {
+        if (AndroidAutoSessionAction.NONE!=androidAutoSessionAction) {
             carConnection = new CarConnection(this,
                     () -> handleAndroidAutoSessionEnd(androidAutoSessionAction));
             if (pauseOnAndroidAutoSessionChange) {
@@ -295,8 +295,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
             }
         }
         if (useAudioFocus) {
-            audioFocus = new AudioFocus(this, lib, carConnection,
-                    !pauseOnAndroidAutoSessionChange);
+            audioFocus = new AudioFocus(this, lib);
         }
         if (null!=carConnection) {
             carConnection.start();
@@ -419,10 +418,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
             case PAUSE:
                 pausePlayback();
                 break;
-            case RESUME:
-                if (null!=audioFocus) {
-                    audioFocus.resumeAfterCarDisconnect();
-                }
+            case NONE:
                 break;
         }
     }

@@ -21,13 +21,13 @@ package org.lyrion.squeezelite;
 
 enum AndroidAutoSessionAction {
     PAUSE,
-    RESUME,
+    NONE,
     STOP;
 
     static AndroidAutoSessionAction forSettings(boolean autostart, boolean pauseOnSessionChange) {
         if (autostart) {
             return STOP;
         }
-        return pauseOnSessionChange ? PAUSE : RESUME;
+        return pauseOnSessionChange ? PAUSE : NONE;
     }
 }

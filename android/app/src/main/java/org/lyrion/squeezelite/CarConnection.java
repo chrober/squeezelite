@@ -26,7 +26,6 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.SystemClock;
 
 /**
  * Watches whether Android Auto is projecting, via its content provider. The end of a session is
@@ -51,12 +50,9 @@ public class CarConnection {
     private final CarConnectionState connectionState = new CarConnectionState();
     private long queryNumber = 0;
     private ContentObserver observer = null;
-    private Runnable onSessionStarted = null;
     private Runnable onSessionConnected = null;
     private boolean seenConnected = false;
     private boolean playing = false;
-    // 0 if no session is running
-    private long connectedSince = 0;
 
     // Not for the main thread
     public static int state(Context context) {
@@ -73,24 +69,8 @@ public class CarConnection {
         }
     }
 
-    public long connectedSince() {
-        return connectedSince;
-    }
-
-    long queryVersion() {
-        return queryNumber;
-    }
-
-    public void setOnSessionStarted(Runnable onSessionStarted) {
-        this.onSessionStarted = onSessionStarted;
-    }
-
     public void setOnSessionConnected(Runnable onSessionConnected) {
         this.onSessionConnected = onSessionConnected;
-    }
-
-    void markConnected() {
-        onState(++queryNumber, 2, false);
     }
 
     private void markConnected(boolean transition) {
@@ -99,10 +79,6 @@ public class CarConnection {
         }
         if (!seenConnected) {
             seenConnected = true;
-            connectedSince = SystemClock.elapsedRealtime();
-            if (null!=onSessionStarted) {
-                onSessionStarted.run();
-            }
             if (transition && null!=onSessionConnected) {
                 onSessionConnected.run();
             }
@@ -179,7 +155,6 @@ public class CarConnection {
         } else if (CarConnectionState.DISCONNECTED==action) {
             Utils.info("Android Auto session ended");
             seenConnected = false;
-            connectedSince = 0;
             schedulePoll();
             try {
                 onSessionEnded.run();
