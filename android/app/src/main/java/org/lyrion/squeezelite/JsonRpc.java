@@ -29,6 +29,7 @@ import androidx.annotation.Nullable;
 import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.RequestQueue;
 import com.android.volley.Response;
+import com.android.volley.VolleyError;
 import com.android.volley.toolbox.ImageRequest;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
@@ -42,13 +43,32 @@ public class JsonRpc {
     private final String mac;
 
     private static class Request extends JsonObjectRequest {
-        public Request(String url, @Nullable JSONObject request, Response.Listener<JSONObject> responseListener) {
+        private final boolean pause;
+
+        public Request(String url, @Nullable JSONObject request, Response.Listener<JSONObject> responseListener, boolean pause) {
             super(Request.Method.POST, url, request, responseListener, error -> {
                 Utils.warn("Request failed - " + error);
                 if (null!=responseListener) {
                     responseListener.onResponse(null);
                 }
             });
+            this.pause = pause;
+        }
+
+        @Override
+        protected void deliverResponse(JSONObject response) {
+            if (pause) {
+                android.util.Log.i("PauseTiming", "pause RPC response received");
+            }
+            super.deliverResponse(response);
+        }
+
+        @Override
+        public void deliverError(VolleyError error) {
+            if (pause) {
+                android.util.Log.i("PauseTiming", "pause RPC failed: " + error.getClass().getSimpleName());
+            }
+            super.deliverError(error);
         }
     }
 
@@ -102,9 +122,13 @@ public class JsonRpc {
             request.put("params", params);
 
             Utils.info("MSG:" + request);
-            Request req = new Request("http://" + server.ip + ":" + server.port + "/jsonrpc.js", request, responseListener);
+            boolean pause = command.length==2 && "pause".equals(command[0]) && "1".equals(command[1]);
+            Request req = new Request("http://" + server.ip + ":" + server.port + "/jsonrpc.js", request, responseListener, pause);
             if (null!=responseListener) {
                 req.setRetryPolicy(new DefaultRetryPolicy(100, 1, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+            }
+            if (pause) {
+                android.util.Log.i("PauseTiming", "pause RPC enqueued");
             }
             requestQueue.add(req);
         } catch (Exception e) {

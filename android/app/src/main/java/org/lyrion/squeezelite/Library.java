@@ -381,6 +381,7 @@ public class Library {
     // 'playing' is whether the player is (about to be) outputting audio.
     @Keep
     public void playbackStateChanged(boolean playing) {
+        android.util.Log.i("PauseTiming", "native playback callback playing=" + playing);
         Utils.debug("playing:"+playing);
         this.playing = playing;
         PlayerService svc = service;
@@ -398,6 +399,7 @@ public class Library {
     }
 
     public void pause() {
+        android.util.Log.i("PauseTiming", "pause command requested rpcAvailable=" + (null!=jsonRpc));
         sendCommand(PAUSE_COMMAND);
     }
 

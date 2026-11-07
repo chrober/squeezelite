@@ -398,6 +398,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
     }
 
     private void pausePlayback() {
+        android.util.Log.i("PauseTiming", "session or media control requested pause");
         cancelPendingResume();
         if (null!=lib) {
             lib.pause();

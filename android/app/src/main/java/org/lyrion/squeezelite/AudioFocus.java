@@ -47,6 +47,7 @@ public class AudioFocus {
     }
 
     private void onFocusChange(int focusChange) {
+        android.util.Log.i("PauseTiming", "audio focus change=" + focusChange);
         Utils.debug("focusChange:" + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:

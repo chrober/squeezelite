@@ -147,6 +147,9 @@ public class CarConnection {
         }
         Utils.debug("state:"+state+", seenConnected:"+seenConnected+", confirming:"+confirming);
         int action = connectionState.observe(query, state, confirming);
+        if (CarConnectionState.CONNECTED==action || CarConnectionState.DISCONNECTED==action) {
+            android.util.Log.i("PauseTiming", "car transition=" + action + " state=" + state);
+        }
         if (!connectionState.isCurrent(query)) {
             return;
         }
