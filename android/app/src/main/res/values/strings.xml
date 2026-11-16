@@ -56,4 +56,7 @@
     <string name="use_opensles_summary">Always use OpenSL ES for audio output</string>
     <string name="audio_focus">Use audio focus</string>
     <string name="audio_focus_summary">Take Android audio focus whilst playing, and pause when another app (e.g. a phone call) takes it. Required for sound to be sent to Android Auto</string>
+    <string name="android_auto">Android Auto</string>
+    <string name="pause_on_android_auto_disconnect">Pause player when Android Auto disconnects</string>
+    <string name="pause_on_android_auto_disconnect_summary">Pause playback when an Android Auto session ends. If Android Auto auto-start is enabled, the player stops instead</string>
 </resources>

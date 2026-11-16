@@ -281,8 +281,18 @@ public class PlayerService extends MediaBrowserServiceCompat {
         if (!Utils.isEmpty(playerName)) {
             updateNotification();
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false)) {
-            carConnection = new CarConnection(this, this::stopForegroundService);
+        SharedPreferences prefs = Prefs.get(this);
+        AndroidAutoDisconnectAction disconnectAction = AndroidAutoDisconnectAction.forSettings(
+                prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
+                prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
+        if (AndroidAutoDisconnectAction.NONE!=disconnectAction) {
+            carConnection = new CarConnection(this, () -> {
+                if (AndroidAutoDisconnectAction.STOP==disconnectAction) {
+                    stopForegroundService();
+                } else if (null!=lib) {
+                    lib.pause();
+                }
+            });
             carConnection.start();
         }
         if (Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS)) {
