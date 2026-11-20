@@ -37,37 +37,53 @@ public class CarConnection {
     private static final Uri URI = Uri.parse("content://androidx.car.app.connection");
     private static final String STATE = "CarConnectionState";
     public static final int NOT_CONNECTED = 0;
-    private static final long CONFIRM_DELAY = 3000;
-    // In case the provider does not notify a change
-    private static final long POLL_INTERVAL = 30000;
+    private static final int UNKNOWN = -1;
+    private static final long CONFIRM_DELAY = 500;
+    private static final long ACTIVE_POLL_INTERVAL = 1000;
+    private static final long IDLE_POLL_INTERVAL = 30000;
 
     private final Context context;
     private final Runnable onSessionEnded;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable confirmTask = this::confirm;
     private final Runnable pollTask = this::poll;
+    private final CarConnectionState connectionState = new CarConnectionState();
+    private long queryNumber = 0;
     private ContentObserver observer = null;
     private boolean seenConnected = false;
+    private boolean playing = false;
     // 0 if no session is running
     private long connectedSince = 0;
 
     // Not for the main thread
     public static int state(Context context) {
+        int state = readState(context);
+        return UNKNOWN==state ? NOT_CONNECTED : state;
+    }
+
+    private static int readState(Context context) {
         try (Cursor cursor = context.getContentResolver().query(URI, new String[]{STATE}, null, null, null)) {
             if (null == cursor) {
-                return NOT_CONNECTED;
+                return UNKNOWN;
             }
             int col = cursor.getColumnIndex(STATE);
-            return col < 0 || !cursor.moveToNext() ? NOT_CONNECTED : cursor.getInt(col);
+            return col < 0 || !cursor.moveToNext() ? UNKNOWN : cursor.getInt(col);
         } catch (Exception e) {
             // Android Auto not installed, or too old
             Utils.debug("Car connection state unavailable");
-            return NOT_CONNECTED;
+            return UNKNOWN;
         }
     }
 
     public long connectedSince() {
         return connectedSince;
+    }
+
+    public void playbackStateChanged(boolean playing) {
+        this.playing = playing;
+        if (null!=observer) {
+            schedulePoll();
+        }
     }
 
     public CarConnection(Context context, Runnable onSessionEnded) {
@@ -109,19 +125,24 @@ public class CarConnection {
     }
 
     private void read(boolean confirming) {
+        long query = ++queryNumber;
         new Thread(() -> {
-            int state = state(context);
-            handler.post(() -> onState(state, confirming));
+            int state = readState(context);
+            handler.post(() -> onState(query, state, confirming));
         }).start();
     }
 
-    private void onState(int state, boolean confirming) {
+    private void onState(long query, int state, boolean confirming) {
         if (null==observer) {
             // Released whilst the query was running
             return;
         }
         Utils.debug("state:"+state+", seenConnected:"+seenConnected+", confirming:"+confirming);
-        if (NOT_CONNECTED!=state) {
+        int action = connectionState.observe(query, state, confirming);
+        if (!connectionState.isCurrent(query)) {
+            return;
+        }
+        if (state>NOT_CONNECTED) {
             if (!seenConnected) {
                 seenConnected = true;
                 connectedSince = SystemClock.elapsedRealtime();
@@ -130,11 +151,11 @@ public class CarConnection {
             schedulePoll();
             return;
         }
-        if (!seenConnected) {
+        if (UNKNOWN==state || !seenConnected) {
             schedulePoll();
             return;
         }
-        if (confirming) {
+        if (CarConnectionState.DISCONNECTED==action) {
             Utils.info("Android Auto session ended");
             seenConnected = false;
             connectedSince = 0;
@@ -155,7 +176,7 @@ public class CarConnection {
 
     private void schedulePoll() {
         handler.removeCallbacks(pollTask);
-        handler.postDelayed(pollTask, POLL_INTERVAL);
+        handler.postDelayed(pollTask, seenConnected || playing ? ACTIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL);
     }
 
     private void confirm() {
