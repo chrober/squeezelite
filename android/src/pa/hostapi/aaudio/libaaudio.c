@@ -56,6 +56,7 @@ static signature_I_PSPL     AAudioStream_getFramesRead_ptr = NULL;
 static signature_I_PSPL     AAudioStream_getTimeNanos_ptr = NULL;
 /* Optional (API 26+) */
 static signature_I_PS       AAudioStream_getFramesPerBurst_ptr = NULL;
+static signature_I_PS       AAudioStream_getXRunCount_ptr = NULL;
 
 static signature_I_PPB load_signature_I_PPB(void *lib, char *name) {
     return (signature_I_PPB)dlsym(lib, name);
@@ -180,6 +181,7 @@ int LibAAudio_init() {
     AAudioStream_getFramesRead_ptr = (signature_I_PSPL)dlsym(aalib, "AAudioStream_getFramesRead");
     AAudioStream_getTimeNanos_ptr = (signature_I_PSPL)dlsym(aalib, "AAudioStream_getTimeNanos");
     AAudioStream_getFramesPerBurst_ptr = (signature_I_PS)dlsym(aalib, "AAudioStream_getFramesPerBurst");
+    AAudioStream_getXRunCount_ptr = (signature_I_PS)dlsym(aalib, "AAudioStream_getXRunCount");
     return 1;
 }
 
@@ -209,6 +211,13 @@ aaudio_result_t LibAAudioStream_getTimeNanos(AAudioStream* stream, int64_t* nano
 int32_t LibAAudioStream_getFramesPerBurst(AAudioStream* stream) {
     return AAudioStream_getFramesPerBurst_ptr
         ? (*AAudioStream_getFramesPerBurst_ptr)(stream)
+        : -1;
+}
+
+/* Underruns of the stream so far, or -1 when unavailable. */
+int32_t LibAAudioStream_getXRunCount(AAudioStream* stream) {
+    return AAudioStream_getXRunCount_ptr
+        ? (*AAudioStream_getXRunCount_ptr)(stream)
         : -1;
 }
 

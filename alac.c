@@ -367,7 +367,7 @@ static decode_state alac_decode(void) {
 	block_size = l->default_block_size ? l->default_block_size : l->block_size[l->block_index];
 
 	// stream terminated
-	if (stream.state <= DISCONNECT && (bytes == 0 || block_size == 0)) {
+	if (STREAM_INPUT_ENDED && (bytes == 0 || block_size == 0)) {
 		UNLOCK_S;
 		LOG_DEBUG("end of stream");
 		return DECODE_COMPLETE;

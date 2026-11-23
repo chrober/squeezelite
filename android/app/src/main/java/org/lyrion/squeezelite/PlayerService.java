@@ -157,7 +157,7 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
 
         connectionLostTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 60);
-        initialConnectionTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.CONNECTION_LOST_TIMEOUT_KEY, Prefs.DEFAULT_CONNECTION_LOST_TIMEOUT), 300);
+        initialConnectionTimeout = Utils.toInt(Prefs.get(this).getString(Prefs.INITIAL_CONNECTION_TIMEOUT_KEY, Prefs.DEFAULT_INITIAL_CONNECTION_TIMEOUT), 0);
         if (null!=mediaSession) {
             MediaButtonReceiver.handleIntent(mediaSession, intent);
         }

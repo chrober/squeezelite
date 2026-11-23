@@ -97,6 +97,40 @@ void _buf_resize(struct buffer *buf, size_t size) {
 	buf->base_size = size;
 }
 
+// called with mutex locked to enlarge, keeps the contents; false (buffer unchanged) if out of memory
+bool _buf_grow(struct buffer *buf, size_t size) {
+	size_t old = buf->size;
+	size_t readoff = buf->readp - buf->buf;
+	size_t writeoff = buf->writep - buf->buf;
+	bool wrapped = buf->writep < buf->readp;
+	u8_t *b;
+
+	if (size <= old) return false;
+	b = realloc(buf->buf, size);
+	if (!b) return false;
+
+	if (wrapped) {
+		// the data runs from readoff to the old end, then on from the start: move the start part up behind the old end
+		size_t room = size - old;
+		if (writeoff <= room) {
+			memcpy(b + old, b, writeoff);
+			writeoff = (old + writeoff) % size;
+		} else {
+			memcpy(b + old, b, room);
+			memmove(b, b + room, writeoff - room);
+			writeoff -= room;
+		}
+	}
+
+	buf->buf    = b;
+	buf->readp  = b + readoff;
+	buf->writep = b + writeoff;
+	buf->wrap   = b + size;
+	buf->size   = size;
+	buf->base_size = size;
+	return true;
+}
+
 void _buf_unwrap(struct buffer *buf, size_t cont) {
 	ssize_t len, by = cont - (buf->wrap - buf->readp);
 	size_t size;

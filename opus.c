@@ -102,7 +102,7 @@ static int _read_cb(void *datasource, char *ptr, int size) {
 		LOCK_S;
 		bytes = min(_buf_used(streambuf), _buf_cont_read(streambuf));
 		bytes = min(bytes, size);
-		if (bytes || stream.state <= DISCONNECT || !decode.new_stream) break;
+		if (bytes || STREAM_INPUT_ENDED || !decode.new_stream) break;
 
 		UNLOCK_S;
 		usleep(50 * 1000);
@@ -223,7 +223,7 @@ static decode_state opus_decompress(void) {
 
 	} else if (n == 0) {
 
-		if (stream.state <= DISCONNECT) {
+		if (STREAM_INPUT_ENDED) {
 			LOG_INFO("end of decode");
 			UNLOCK_O_direct;
 			return DECODE_COMPLETE;

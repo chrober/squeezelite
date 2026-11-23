@@ -108,7 +108,12 @@ u32_t gettime_ms(void) {
 #else
 #if LINUX || FREEBSD
 	struct timespec ts;
-#ifdef CLOCK_MONOTONIC
+#if defined(ANDROID) && defined(CLOCK_BOOTTIME)
+	// CLOCK_MONOTONIC stops while the phone sleeps (e.g. paused, screen off). LMS maps these times to its own clock
+	// with an offset it only lowers, or resets after a jump of more than 50 s: a shorter sleep left its idea of the
+	// player's position ahead by the time slept, until the next big jump
+	if (!clock_gettime(CLOCK_BOOTTIME, &ts)) {
+#elif defined(CLOCK_MONOTONIC)
 	if (!clock_gettime(CLOCK_MONOTONIC, &ts)) {
 #else
 	if (!clock_gettime(CLOCK_REALTIME, &ts)) {

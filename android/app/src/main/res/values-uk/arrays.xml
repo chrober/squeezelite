@@ -38,6 +38,7 @@
         <item>8 Мб</item>
         <item>16 Мб</item>
         <item>32 Мб</item>
+        <item>Поточний + наступний трек повністю (динамічний буфер)</item>
     </string-array>
     <string-array name="rateLimitWhen">
         <item>Завжди</item>

@@ -62,6 +62,7 @@ public class AudioFocus {
         Utils.debug("focusChange:" + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
+                handler.removeCallbacks(callCheck);
                 haveFocus = true;
                 handler.removeCallbacks(reclaimTask);
                 if (pausedByLoss) {
@@ -81,9 +82,17 @@ public class AudioFocus {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // e.g. phone call, or navigation prompt
-                pausedByLoss = true;
-                lib.pause();
+                // A phone call should follow the controller's resume setting; navigation prompts can resume.
+                if (lib.isPlaying()) {
+                    boolean call = inCall();
+                    pausedByLoss = !call;
+                    lib.pause();
+                    if (pausedByLoss) {
+                        for (long delay : CALL_CHECK_DELAYS) {
+                            handler.postDelayed(callCheck, delay);
+                        }
+                    }
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 // Android (8+) lowers our volume itself
@@ -91,6 +100,23 @@ public class AudioFocus {
             default:
                 break;
         }
+    }
+
+    private static final long[] CALL_CHECK_DELAYS = {500, 1500, 3000};
+    private final Runnable callCheck = this::checkCall;
+
+    private void checkCall() {
+        if (pausedByLoss && inCall()) {
+            pausedByLoss = false;
+            Utils.debug("Paused for a call (audio mode " + audioManager.getMode() + "), not resuming after it");
+        }
+    }
+
+    private boolean inCall() {
+        int mode = audioManager.getMode();
+        return AudioManager.MODE_RINGTONE==mode || AudioManager.MODE_IN_CALL==mode ||
+                AudioManager.MODE_IN_COMMUNICATION==mode ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && AudioManager.MODE_CALL_SCREENING==mode);
     }
 
     private boolean mayBeCarStarting() {
