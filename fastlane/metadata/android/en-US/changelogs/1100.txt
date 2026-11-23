@@ -1,5 +1,5 @@
 • Android Auto support: output sound (audio focus), start/stop the player with the session - thanks to Vincent Verdeil.
-• Improve Android Auto connection handling and add options to pause on connect or disconnect - thanks to Christoph Obermair and Ari (@arigit).
+• Improve Android Auto connection handling and add options to pause on connect or disconnect - thanks to arigit and chrober.
 • Keep the configured server port for JSON-RPC - thanks to smellybellyy
 • Create the notification manager below Android 8 too - thanks to smellybellyy
 • Add AndroidTV launcher icon.
