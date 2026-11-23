@@ -33,10 +33,12 @@ import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.support.v4.media.MediaBrowserCompat;
+import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.view.KeyEvent;
 
@@ -46,6 +48,7 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.ServiceCompat;
 import androidx.media.MediaBrowserServiceCompat;
+import androidx.media.MediaSessionManager;
 import androidx.media.session.MediaButtonReceiver;
 
 import java.util.ArrayList;
@@ -60,6 +63,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public static final String STATUS_INTENT = PlayerService.class.getCanonicalName()+".STATUS";
     private static final String QUIT_INTENT = PlayerService.class.getCanonicalName() + ".QUIT";
     public static final String RUNNING_KEY = "running";
+    // Set by Lyrion when it starts the player because Android Auto connected: the car's pause key can arrive
+    // before Android Auto's connection state says connected
+    public static final String CAR_CONNECTING_EXTRA = "carConnecting";
     public static final String NOTIFICATION_CHANNEL_ID = "squeezelite_service";
     private static final int MSG_ID = 1;
 
@@ -69,6 +75,8 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private final Handler handler;
     private PowerManager.WakeLock wakeLock = null;
     private Library lib = null;
+    private static final String MEDIA_ROOT_ID = "root";
+    private static final String MEDIA_INFO_ID = "info";
     private int initialConnectionTimeout = 0;
     private int connectionLostTimeout = 0;
     private final ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
@@ -79,6 +87,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
     private volatile NowPlaying nowPlaying;
     private volatile AudioFocus audioFocus;
     private volatile CarConnection carConnection;
+    private final Object stopLock = new Object();
+    // A pause key this soon after Android Auto connects is ignored, unless pausing on connect: the car or Android
+    // Auto sends one (seen 0.4-15 s after connect, 2026-11-04..06), which paused what a controller had just resumed.
+    private static final long CAR_CONNECT_PAUSE_WINDOW_MS = 20000;
+    private boolean pauseOnAndroidAutoConnect = false;
+    // When Lyrion last started the player for a car connect, 0 if never
+    private long carConnectingAt = 0;
     private boolean started = false;
 
     // stopService() is not enough, as Android Auto can keep the service bound and so alive
@@ -102,7 +117,12 @@ public class PlayerService extends MediaBrowserServiceCompat {
     public void onCreate() {
         super.onCreate();
         Utils.debug("");
-        // The player starts in onStartCommand, so that Android Auto binding to browse does not start it
+        // The player starts in onStartCommand, so that Android Auto binding to browse does not start it. The
+        // session is needed for browsing though: browsers are only connected once its token is set. It is only
+        // made active while the player runs. Its token can only be set once, and the player can be started
+        // again by the same service.
+        mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
+        setSessionToken(mediaSession.getSessionToken());
     }
 
     @Override
@@ -110,6 +130,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
         super.onDestroy();
         Utils.debug("");
         stopForegroundService();
+        if (mediaSession != null) {
+            mediaSession.release();
+            mediaSession = null;
+        }
     }
 
     @Nullable
@@ -118,15 +142,24 @@ public class PlayerService extends MediaBrowserServiceCompat {
         return super.onBind(intent);
     }
 
-    // Android Auto only shows media apps it can browse, so offer it an empty library
+    // Android Auto only shows media apps it can browse, so offer it a library that just says where to browse
     @Override
     public BrowserRoot onGetRoot(String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
-        return new BrowserRoot("root", null);
+        return new BrowserRoot(MEDIA_ROOT_ID, null);
     }
 
     @Override
     public void onLoadChildren(String parentId, Result<List<MediaBrowserCompat.MediaItem>> result) {
-        result.sendResult(new ArrayList<>());
+        List<MediaBrowserCompat.MediaItem> items = new ArrayList<>();
+        if (MEDIA_ROOT_ID.equals(parentId)) {
+            MediaDescriptionCompat description = new MediaDescriptionCompat.Builder()
+                    .setMediaId(MEDIA_INFO_ID)
+                    .setTitle(getString(R.string.android_auto_playback_only))
+                    .setSubtitle(getString(R.string.android_auto_browse_hint))
+                    .build();
+            items.add(new MediaBrowserCompat.MediaItem(description, MediaBrowserCompat.MediaItem.FLAG_BROWSABLE));
+        }
+        result.sendResult(items);
     }
 
     @Override
@@ -137,6 +170,10 @@ public class PlayerService extends MediaBrowserServiceCompat {
             if (QUIT_INTENT.equals(action)) {
                 stopForegroundService();
                 return START_NOT_STICKY;
+            }
+            if (intent.getBooleanExtra(CAR_CONNECTING_EXTRA, false)) {
+                Utils.debug("Started for a car connect");
+                carConnectingAt = SystemClock.elapsedRealtime();
             }
         }
 
@@ -256,6 +293,9 @@ public class PlayerService extends MediaBrowserServiceCompat {
 
     private void stopForegroundService() {
         Utils.debug("");
+        // Something bound to the service (e.g. Android Auto browsing it) keeps it alive after stopSelf(), and
+        // then the next start command has to start the player again
+        started = false;
         stopForeground(true);
         stopSelf();
         stopPlayer();
@@ -282,25 +322,34 @@ public class PlayerService extends MediaBrowserServiceCompat {
             updateNotification();
         }
         SharedPreferences prefs = Prefs.get(this);
+        // Separate settings: e.g. a controller (Lyrion) may start playback as the car connects, which needs Android
+        // Auto's focus grab at startup reclaimed, but playback still paused when the car disconnects
+        pauseOnAndroidAutoConnect = prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_CONNECT_KEY, false);
         AndroidAutoDisconnectAction disconnectAction = AndroidAutoDisconnectAction.forSettings(
                 prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
                 prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
-        if (AndroidAutoDisconnectAction.NONE!=disconnectAction) {
+        boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
+        // Audio focus needs it too, to tell Android Auto starting up from another app taking focus
+        if (useAudioFocus || pauseOnAndroidAutoConnect || AndroidAutoDisconnectAction.NONE!=disconnectAction) {
             carConnection = new CarConnection(this, () -> {
                 if (AndroidAutoDisconnectAction.STOP==disconnectAction) {
                     stopForegroundService();
-                } else if (null!=lib) {
-                    lib.pause();
+                } else if (AndroidAutoDisconnectAction.PAUSE==disconnectAction) {
+                    pausePlayback();
                 }
             });
+            if (pauseOnAndroidAutoConnect) {
+                carConnection.setOnSessionConnected(this::pausePlayback);
+            }
+        }
+        if (useAudioFocus) {
+            audioFocus = new AudioFocus(this, lib, carConnection, !pauseOnAndroidAutoConnect);
+        }
+        // After AudioFocus has set its session start callback
+        if (null!=carConnection) {
             carConnection.start();
         }
-        if (Prefs.get(this).getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS)) {
-            audioFocus = new AudioFocus(this, lib, carConnection);
-        }
 
-        mediaSession = new MediaSessionCompat(getApplicationContext(), "Squeezelite");
-        setSessionToken(mediaSession.getSessionToken());
         if (mediaSessionCallback==null) {
             mediaSessionCallback=new MediaSessionCompat.Callback() {
                 @Override
@@ -314,14 +363,13 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 @Override
                 public void onPause() {
                     Utils.debug("");
-                    if (null!=lib) {
-                        lib.pause();
-                    }
+                    pausePlayback();
                 }
 
                 @Override
                 public void onStop() {
                     Utils.debug("");
+                    cancelPendingResume();
                     if (null!=lib) {
                         lib.stopPlayback();
                     }
@@ -353,20 +401,27 @@ public class PlayerService extends MediaBrowserServiceCompat {
                 public boolean onMediaButtonEvent(Intent mediaButtonEvent) {
                     KeyEvent event = mediaButtonEvent.getParcelableExtra(Intent.EXTRA_KEY_EVENT);
                     if (null!=lib && null!=event && KeyEvent.ACTION_DOWN==event.getAction()) {
-                        Utils.debug("KeyCode:" + event.getKeyCode());
+                        Utils.debug("KeyCode:" + event.getKeyCode() + ", from " + caller());
                         switch (event.getKeyCode()) {
                             case KeyEvent.KEYCODE_MEDIA_PLAY:
                                 lib.play();
                                 return true;
-                            case KeyEvent.KEYCODE_MEDIA_PAUSE:
-                                lib.pause();
+                            case KeyEvent.KEYCODE_MEDIA_PAUSE: {
+                                if (carStartingUp()) {
+                                    Utils.debug("Ignoring pause on car connect");
+                                    return true;
+                                }
+                                pausePlayback();
                                 return true;
+                            }
                             case KeyEvent.KEYCODE_MEDIA_STOP:
+                                cancelPendingResume();
                                 lib.stopPlayback();
                                 return true;
                             // These do not say which of the two is wanted, so toggle
                             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                             case KeyEvent.KEYCODE_HEADSETHOOK:
+                                cancelPendingResume();
                                 lib.playPause();
                                 return true;
                             case KeyEvent.KEYCODE_MEDIA_PREVIOUS:
@@ -394,32 +449,81 @@ public class PlayerService extends MediaBrowserServiceCompat {
         }
     }
 
-    private void stopPlayer() {
-        if (null==lib) {
-            return;
+    // Which app sent the current media session command, for the log
+    private String caller() {
+        try {
+            MediaSessionManager.RemoteUserInfo info = null==mediaSession ? null : mediaSession.getCurrentControllerInfo();
+            return null==info ? "?" : (info.getPackageName() + " (uid " + info.getUid() + ")");
+        } catch (Exception e) {
+            return "?";
         }
-        if (null!=wakeLock) {
-            wakeLock.release();
-            wakeLock = null;
+    }
+
+    // Android Auto has just connected (or is connecting), and pausing on connect is off
+    private boolean carStartingUp() {
+        CarConnection connection = carConnection;
+        if (pauseOnAndroidAutoConnect) {
+            return false;
         }
-        sendStatus(false);
-        stopTerminateTimer();
-        if (null!=nowPlaying) {
-            nowPlaying.release();
-            nowPlaying = null;
+        if (carConnectingAt > 0 && SystemClock.elapsedRealtime() - carConnectingAt < CAR_CONNECT_PAUSE_WINDOW_MS) {
+            return true;
         }
+        if (null==connection) {
+            return false;
+        }
+        long since = connection.connectedSince();
+        if (since > 0) {
+            return SystemClock.elapsedRealtime() - since < CAR_CONNECT_PAUSE_WINDOW_MS;
+        }
+        // Not seen yet: the key can arrive before the connection state change
+        return CarConnection.state(this) > CarConnection.NOT_CONNECTED;
+    }
+
+    private void pausePlayback() {
+        cancelPendingResume();
+        if (null!=lib) {
+            lib.pause();
+        }
+    }
+
+    private void cancelPendingResume() {
         if (null!=audioFocus) {
-            audioFocus.release();
-            audioFocus = null;
+            audioFocus.cancelPendingResume();
         }
-        if (null!=carConnection) {
-            carConnection.release();
-            carConnection = null;
-        }
-        lib.stopPlayer(this);
-        if (mediaSession != null) {
-            mediaSession.setActive(false);
-            mediaSession.release();
+    }
+
+    // The connection-lost timer stops the service on its executor thread, and onDestroy() then stops it again on
+    // the main thread: without the lock both released the same objects at once ("Receiver not registered").
+    // Not the service's own lock, which updateNotification() takes from the player thread stopPlayer() waits for.
+    private void stopPlayer() {
+        synchronized (stopLock) {
+            if (null==lib) {
+                return;
+            }
+            if (null!=wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+            sendStatus(false);
+            stopTerminateTimer();
+            if (null!=nowPlaying) {
+                nowPlaying.release();
+                nowPlaying = null;
+            }
+            if (null!=audioFocus) {
+                audioFocus.release();
+                audioFocus = null;
+            }
+            if (null!=carConnection) {
+                carConnection.release();
+                carConnection = null;
+            }
+            lib.stopPlayer(this);
+            // A new start gets a new one, as its state (e.g. the initial power on) is per start
+            lib = null;
+            if (mediaSession != null) {
+                mediaSession.setActive(false);
+            }
         }
     }
 

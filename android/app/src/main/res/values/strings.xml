@@ -59,4 +59,8 @@
     <string name="android_auto">Android Auto</string>
     <string name="pause_on_android_auto_disconnect">Pause player when Android Auto disconnects</string>
     <string name="pause_on_android_auto_disconnect_summary">Pause playback when an Android Auto session ends. If Android Auto auto-start is enabled, the player stops instead</string>
+    <string name="pause_on_android_auto_connect">Pause player when Android Auto connects</string>
+    <string name="pause_on_android_auto_connect_summary">Pause player when an Android Auto session starts, and leave it paused when Android Auto takes the audio focus as it starts</string>
+    <string name="android_auto_playback_only">Squeezelite is for playback only.</string>
+    <string name="android_auto_browse_hint">Browse music using a Lyrion controller.</string>
 </resources>

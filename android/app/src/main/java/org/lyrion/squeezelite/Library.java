@@ -389,6 +389,10 @@ public class Library {
         }
     }
 
+    public boolean isPlaying() {
+        return playing;
+    }
+
     public void prev() {
         sendCommand(PREV_COMMAND);
     }
