@@ -328,10 +328,12 @@ public class PlayerService extends MediaBrowserServiceCompat {
         AndroidAutoDisconnectAction disconnectAction = AndroidAutoDisconnectAction.forSettings(
                 prefs.getBoolean(Prefs.AUTOSTART_ANDROID_AUTO_KEY, false),
                 prefs.getBoolean(Prefs.PAUSE_ON_ANDROID_AUTO_DISCONNECT_KEY, false));
+        android.util.Log.d("AA_DIAG", "disconnect action=" + disconnectAction);
         boolean useAudioFocus = prefs.getBoolean(Prefs.AUDIO_FOCUS_KEY, Prefs.DEFAULT_AUDIO_FOCUS);
         // Audio focus needs it too, to tell Android Auto starting up from another app taking focus
         if (useAudioFocus || pauseOnAndroidAutoConnect || AndroidAutoDisconnectAction.NONE!=disconnectAction) {
             carConnection = new CarConnection(this, () -> {
+                android.util.Log.d("AA_DIAG", "disconnect callback action=" + disconnectAction);
                 if (AndroidAutoDisconnectAction.STOP==disconnectAction) {
                     stopForegroundService();
                 } else if (AndroidAutoDisconnectAction.PAUSE==disconnectAction) {

@@ -77,6 +77,7 @@ public class CarConnection {
             return col < 0 || !cursor.moveToNext() ? UNKNOWN : cursor.getInt(col);
         } catch (Exception e) {
             // Android Auto not installed, or too old
+            android.util.Log.e("AA_DIAG", "Car connection query failed", e);
             Utils.debug("Car connection state unavailable");
             return UNKNOWN;
         }
@@ -145,6 +146,7 @@ public class CarConnection {
         try {
             context.getContentResolver().registerContentObserver(URI, false, observer);
         } catch (Exception e) {
+            android.util.Log.e("AA_DIAG", "Car connection observer registration failed", e);
             Utils.error("Failed to watch car connection", e);
             observer = null;
             return;
@@ -159,6 +161,7 @@ public class CarConnection {
             ContextCompat.registerReceiver(context, receiver, new IntentFilter(UPDATED_ACTION),
                     ContextCompat.RECEIVER_EXPORTED);
         } catch (Exception e) {
+            android.util.Log.e("AA_DIAG", "Car connection receiver registration failed", e);
             Utils.error("Failed to receive car connection updates", e);
             receiver = null;
         }
@@ -201,6 +204,7 @@ public class CarConnection {
         }
         Utils.debug("state:"+state+", seenConnected:"+seenConnected+", confirming:"+confirming);
         int action = connectionState.observe(query, state, confirming);
+        android.util.Log.d("AA_DIAG", "state=" + state + " seen=" + seenConnected + " confirming=" + confirming + " action=" + action);
         if (!connectionState.isCurrent(query)) {
             return;
         }
