@@ -8,6 +8,17 @@ on:
   workflow_dispatch:
 
 jobs:
+  linux-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libflac-dev libvorbis-dev libfaad-dev libmad0-dev libmpg123-dev
+      - name: Compile Linux player
+        run: make -j2
+
   build:
     runs-on: ubuntu-latest
 
