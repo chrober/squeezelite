@@ -71,6 +71,7 @@ public class AudioFocus {
         Utils.debug("focusChange:" + focusChange);
         switch (focusChange) {
             case AudioManager.AUDIOFOCUS_GAIN:
+                handler.removeCallbacks(callCheck);
                 haveFocus = true;
                 handler.removeCallbacks(reclaimTask);
                 reclaimDeadline = 0;
@@ -93,9 +94,22 @@ public class AudioFocus {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                // e.g. phone call, or navigation prompt
-                pausedByLoss = !suppressAutoResume;
-                lib.pause();
+                // e.g. phone call, or navigation prompt. Only resumed afterwards if it was playing: 'pause 0' on a
+                // stopped player starts its playlist from the top. Not after a call: whether to resume then is the
+                // controller's setting (Lyrion's "after a call"), and resuming here ignored it.
+                if (lib.isPlaying()) {
+                    boolean call = inCall();
+                    pausedByLoss = !suppressAutoResume && !call;
+                    Utils.debug("Transient loss, audio mode " + audioManager.getMode() + (call ? ": a call, not resuming after it" : ""));
+                    lib.pause();
+                    if (pausedByLoss) {
+                        // Telecom requests focus and sets the call mode at about the same time (an outgoing call),
+                        // so the mode can still be normal when the loss arrives: look again shortly after.
+                        for (long delay : CALL_CHECK_DELAYS) {
+                            handler.postDelayed(callCheck, delay);
+                        }
+                    }
+                }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                 // Android (8+) lowers our volume itself
@@ -103,6 +117,23 @@ public class AudioFocus {
             default:
                 break;
         }
+    }
+
+    private static final long[] CALL_CHECK_DELAYS = {500, 1500, 3000};
+    private final Runnable callCheck = this::checkCall;
+
+    private void checkCall() {
+        if (pausedByLoss && inCall()) {
+            pausedByLoss = false;
+            Utils.debug("Paused for a call (audio mode " + audioManager.getMode() + "), not resuming after it");
+        }
+    }
+
+    private boolean inCall() {
+        int mode = audioManager.getMode();
+        return AudioManager.MODE_RINGTONE==mode || AudioManager.MODE_IN_CALL==mode ||
+                AudioManager.MODE_IN_COMMUNICATION==mode ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && AudioManager.MODE_CALL_SCREENING==mode);
     }
 
     private boolean mayBeCarStarting() {

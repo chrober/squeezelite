@@ -56,4 +56,6 @@
     <string name="use_opensles_summary">Utilise toujours OpenSL ES pour la sortie audio</string>
     <string name="audio_focus">Utiliser le focus audio</string>
     <string name="audio_focus_summary">Prend le focus audio Android pendant la lecture, et met en pause lorsqu\'une autre application (par ex. un appel téléphonique) le prend. Nécessaire pour que le son soit envoyé à Android Auto</string>
+    <string name="android_auto_playback_only">Squeezelite est destiné uniquement à la lecture.</string>
+    <string name="android_auto_browse_hint">Parcourez votre musique à l’aide d’un contrôleur Lyrion.</string>
 </resources>
